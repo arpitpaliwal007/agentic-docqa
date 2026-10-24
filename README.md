@@ -3,9 +3,6 @@
 Multi-user document QA. Upload PDFs or markdown, ask questions, get answers grounded in your own
 files. Built on LangGraph, Qdrant hybrid search, and any OpenAI-compatible LLM (Ollama by default).
 
-Architecture follows [HuoYe24/agentic-rag-for-practice](https://github.com/HuoYe24/agentic-rag-for-practice);
-this is a from-scratch reimplementation of the same design.
-
 ## What it does
 
 - Accounts with bcrypt passwords and cookie sessions. Each user gets their own Qdrant
