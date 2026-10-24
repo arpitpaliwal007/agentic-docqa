@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocQA · Documents</title>{% include "_style.html" %}
+<style>
+.page{max-width:760px;margin:2rem auto;padding:0 1rem;display:grid;gap:1.2rem}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.1rem}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:1.6rem;text-align:center}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+ul{list-style:none;margin:0;padding:0}li{display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid var(--line)}
+li:last-child{border-bottom:0}.stats{display:flex;gap:1.2rem;font-variant-numeric:tabular-nums}
+</style></head><body>
+<div class="top"><span class="brand">DocQA</span><a href="/chat">Chat</a><a class="on" href="/documents">Documents</a>
+<span class="muted">{{ user }}</span><form method="post" action="/logout" style="margin:0"><button>Sign out</button></form></div>
+<div class="page">
+  <div class="box"><h3 style="margin-top:0">Upload</h3>
+    <div class="drop" id="drop"><p>Drop PDF, Markdown or TXT files here</p><input type="file" id="file" multiple accept=".pdf,.md,.markdown,.txt" style="width:auto"></div>
+    <p id="status" class="muted"></p></div>
+  <div class="box"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 style="margin:0">Your documents</h3><div class="stats muted" id="stats"></div></div>
+    <ul id="docs"></ul></div>
+  <p class="muted">Uploading or deleting a document marks existing chats as stale. Their next answer starts from a fresh agent thread, so nothing from the old library leaks in.</p>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+async function load() {
+  const r = await fetch("/api/documents"); if (r.status === 401) return location.href = "/login";
+  const d = await r.json();
+  $("#stats").innerHTML = `<span>${d.stats.documents} docs</span><span>${d.stats.parents} sections</span><span>${d.stats.children} chunks</span>`;
+  $("#docs").innerHTML = d.documents.length ? "" : '<li class="muted">Nothing uploaded yet.</li>';
+  for (const name of d.documents) {
+    const li = document.createElement("li"); li.innerHTML = `<span></span><button>Delete</button>`;
+    li.querySelector("span").textContent = name;
+    li.querySelector("button").onclick = async () => {
+      if (!confirm(`Delete ${name}?`)) return;
+      await fetch(`/api/documents/${encodeURIComponent(name)}`, {method:"DELETE"}); load();
+    };
+    $("#docs").appendChild(li);
+  }
+}
+async function upload(files) {
+  if (!files.length) return;
+  const fd = new FormData(); for (const f of files) fd.append("files", f);
+  $("#status").textContent = `Indexing ${files.length} file(s)…`;
+  const d = await (await fetch("/api/documents", {method:"POST", body:fd})).json();
+  const ok = d.added.map(a => `${a.name} (${a.children} chunks)`), bad = d.errors.map(e => `${e.name}: ${e.error}`);
+  $("#status").textContent = [ok.length && "Indexed " + ok.join(", "), bad.length && "Failed " + bad.join("; ")].filter(Boolean).join(" · ");
+  load();
+}
+$("#file").onchange = e => upload(e.target.files);
+const drop = $("#drop");
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); upload(e.dataTransfer.files); };
+load();
+</script></body></html>

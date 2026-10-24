@@ -1,0 +1,103 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DocQA · Chat</title>{% include "_style.html" %}
+<style>
+.wrap{display:grid;grid-template-columns:260px 1fr;height:calc(100vh - 49px)}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}.side{display:none}}
+.side{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+.side .list{overflow:auto;flex:1;padding:.4rem}
+.item{display:flex;align-items:center;gap:.3rem;padding:.45rem .55rem;border-radius:8px;cursor:pointer}
+.item:hover{background:var(--bg)}.item.on{background:var(--accent-soft)}
+.item .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .tag{font-size:11px;color:var(--muted)}.item button{padding:.1rem .35rem;border:0;background:none;color:var(--muted)}
+.main{display:flex;flex-direction:column;min-height:0}
+.msgs{flex:1;overflow:auto;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
+.msg{max-width:760px;padding:.7rem .9rem;border-radius:10px;white-space:pre-wrap;word-wrap:break-word}
+.msg.user{align-self:flex-end;background:var(--accent-soft)}
+.msg.assistant{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.msg.note{align-self:center;font-size:13px;color:var(--muted);padding:.2rem}
+.steps{font-size:12px;color:var(--muted);align-self:flex-start}
+form.ask{display:flex;gap:.5rem;padding:.8rem 1rem;border-top:1px solid var(--line);background:var(--panel)}
+form.ask textarea{resize:none;height:44px}
+</style></head><body>
+<div class="top"><span class="brand">DocQA</span><a class="on" href="/chat">Chat</a><a href="/documents">Documents</a>
+<span class="muted">{{ user }}</span><form method="post" action="/logout" style="margin:0"><button>Sign out</button></form></div>
+<div class="wrap">
+  <aside class="side"><div style="padding:.6rem"><button class="primary" style="width:100%" id="new">New chat</button></div><div class="list" id="list"></div></aside>
+  <section class="main"><div class="msgs" id="msgs"></div>
+    <form class="ask" id="ask"><textarea id="text" placeholder="Ask about your documents…" required></textarea><button class="primary" id="send">Send</button></form>
+  </section>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+let current = null, busy = false;
+const STEP_LABEL = {router:"routing", summarize:"reading context", rewrite:"rewriting question",
+  research:"searching documents", aggregate:"writing answer", direct_chat:"replying",
+  overview:"reviewing documents", inventory:"listing documents"};
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
+  if (r.status === 401) location.href = "/login";
+  if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+  return r.json();
+}
+function bubble(role, text) {
+  const d = document.createElement("div");
+  d.className = "msg " + role; d.textContent = text;
+  $("#msgs").appendChild(d); $("#msgs").scrollTop = 1e9; return d;
+}
+async function loadList() {
+  const data = await api("/api/chats");
+  current = current || data.selected;
+  $("#list").innerHTML = "";
+  for (const c of data.chats) {
+    const el = document.createElement("div");
+    el.className = "item" + (c.id === current ? " on" : "");
+    el.innerHTML = `<span class="t"></span>${c.stale ? '<span class="tag" title="Documents changed since this chat">docs changed</span>' : ""}
+      <button title="${c.pinned ? "Unpin" : "Pin"}">${c.pinned ? "★" : "☆"}</button><button title="Rename">✎</button><button title="Delete">✕</button>`;
+    el.querySelector(".t").textContent = c.title;
+    const [pin, ren, del] = el.querySelectorAll("button");
+    el.onclick = () => open(c.id);
+    pin.onclick = async e => { e.stopPropagation(); await api(`/api/chats/${c.id}`, {method:"PATCH", body:JSON.stringify({toggle_pin:true})}); loadList(); };
+    ren.onclick = async e => { e.stopPropagation(); const t = prompt("Rename chat", c.title); if (t) { await api(`/api/chats/${c.id}`, {method:"PATCH", body:JSON.stringify({title:t})}); loadList(); } };
+    del.onclick = async e => { e.stopPropagation(); await api(`/api/chats/${c.id}`, {method:"DELETE"}); if (c.id === current) current = null; await loadList(); open(current); };
+    $("#list").appendChild(el);
+  }
+}
+async function open(id) {
+  if (!id) return;
+  current = id;
+  const chat = await api(`/api/chats/${id}`);
+  $("#msgs").innerHTML = "";
+  for (const h of chat.history) bubble(h.meta ? "note" : h.role, h.content);
+  loadList();
+}
+$("#new").onclick = async () => { current = (await api("/api/chats", {method:"POST"})).id; await open(current); $("#text").focus(); };
+$("#text").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#ask").requestSubmit(); } });
+$("#ask").onsubmit = async e => {
+  e.preventDefault();
+  const text = $("#text").value.trim();
+  if (!text || busy) return;
+  busy = true; $("#send").disabled = true; $("#text").value = "";
+  bubble("user", text);
+  const steps = document.createElement("div"); steps.className = "steps"; $("#msgs").appendChild(steps);
+  try {
+    const r = await fetch(`/api/chats/${current}/stream`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    while (true) {
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = (block.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((block.match(/^data: (.*)$/m) || [,'""'])[1]);
+        if (ev === "step") steps.textContent = (STEP_LABEL[data] || data) + "…";
+        else if (ev === "refreshed") bubble("note", "Documents changed; answers below use the current library.");
+        else if (ev === "answer") { steps.remove(); bubble("assistant", data); }
+        else if (ev === "error") { steps.remove(); bubble("note", "Error: " + data); }
+      }
+    }
+  } catch (err) { bubble("note", "Error: " + err.message); }
+  busy = false; $("#send").disabled = false; loadList();
+};
+loadList().then(() => open(current));
+</script></body></html>
