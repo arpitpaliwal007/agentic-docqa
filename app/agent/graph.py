@@ -22,14 +22,14 @@ from app.agent import nodes as n
 from app.agent.state import AgentState, State
 
 
-def build_research_graph(llm, tools):
+def build_research_graph(llm, tools, observer=None):
     g = StateGraph(AgentState)
     g.add_node("orchestrator", partial(n.orchestrator, llm_tools=llm.bind_tools(tools, parallel_tool_calls=False)))
     g.add_node("tools", ToolNode(tools))
-    g.add_node("grade", partial(n.grade, llm=llm), destinations=("maybe_compress", "orchestrator", "fallback"))
+    g.add_node("grade", partial(n.grade, llm=llm, observer=observer), destinations=("maybe_compress", "orchestrator", "fallback"))
     g.add_node("maybe_compress", n.maybe_compress, destinations=("compress", "orchestrator"))
     g.add_node("compress", partial(n.compress, llm=llm))
-    g.add_node("fallback", partial(n.fallback, llm=llm))
+    g.add_node("fallback", partial(n.fallback, llm=llm, observer=observer))
     g.add_node("collect", n.collect)
     g.add_edge(START, "orchestrator")
     g.add_conditional_edges("orchestrator", n.route_orchestrator,
@@ -60,8 +60,8 @@ def _route_after_rewrite(state):
     return [Send("research", {"question": q, "index": i}) for i, q in enumerate(state["questions"])]
 
 
-def build_graph(llm, tools, checkpointer=None):
-    research = build_research_graph(llm, tools)
+def build_graph(llm, tools, checkpointer=None, observer=None):
+    research = build_research_graph(llm, tools, observer)
 
     def run_research(payload):
         # run the subgraph in isolation so its tool chatter never lands in the outer messages
@@ -70,12 +70,12 @@ def build_graph(llm, tools, checkpointer=None):
         return {"answers": out.get("answers", [])}
 
     g = StateGraph(State)
-    g.add_node("router", partial(n.router, llm=llm))
+    g.add_node("router", partial(n.router, llm=llm, observer=observer))
     g.add_node("direct_chat", partial(n.direct_chat, llm=llm))
     g.add_node("inventory", n.inventory)
     g.add_node("no_documents", n.no_documents)
     g.add_node("clarify", n.clarify)
-    g.add_node("overview", partial(n.overview, llm=llm))
+    g.add_node("overview", partial(n.overview, llm=llm, observer=observer))
     g.add_node("summarize", partial(n.summarize, llm=llm))
     g.add_node("rewrite", partial(n.rewrite, llm=llm))
     g.add_node("await_clarification", n.await_clarification)

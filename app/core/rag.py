@@ -35,12 +35,13 @@ def _callbacks():
 
 
 class UserRAG:
-    def __init__(self, users: UserStore, username: str):
+    def __init__(self, users: UserStore, username: str, observer=None):
         self.username = username
         udir = users.user_dir(username)
         self.docs = DocumentManager(udir, users.collection(username))
         store = VectorStore().store(users.collection(username))
-        self.graph = build_graph(get_llm(), build_tools(store, self.docs.parents, get_llm()), _checkpointer)
+        self.graph = build_graph(get_llm(), build_tools(store, self.docs.parents, get_llm(), observer=observer),
+                                 _checkpointer, observer=observer)
 
     def _cfg(self, thread_id):
         return {"configurable": {"thread_id": thread_id}, "recursion_limit": config.RECURSION_LIMIT,

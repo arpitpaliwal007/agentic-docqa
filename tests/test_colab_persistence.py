@@ -1,5 +1,6 @@
 """Offline checks for the Colab runner's Drive backups (no GPU or packages needed)."""
 import importlib.util
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -47,7 +48,7 @@ class DrivePersistenceTests(unittest.TestCase):
         restored.mkdir()
         self.store.restore(restored)
         self.assertEqual((restored / documents.relative_to(self.runtime) / "example.md").read_text(), "# Evidence\nAn answer to remember.")
-        with sqlite3.connect(restored / database.relative_to(self.runtime)) as copied:
+        with closing(sqlite3.connect(restored / database.relative_to(self.runtime))) as copied:
             self.assertEqual(copied.execute("SELECT * FROM chunks").fetchall(), [("committed vector payload",)])
         self.assertEqual(json.loads((restored / "notebook-session.json").read_text())["cookies"]["docqa_session"], "test")
 
@@ -96,6 +97,15 @@ class DrivePersistenceTests(unittest.TestCase):
         other = runner.DriveStore(self.base / "OtherDrive")
         with self.assertRaisesRegex(RuntimeError, "another Drive folder"):
             other.restore(self.runtime)
+
+    def test_runner_bundles_current_app_and_evaluation_notebook(self):
+        destination = self.base / "project"
+        runner.unpack_project(destination)
+        project = Path(__file__).resolve().parents[1]
+        for source in (project / "app").rglob("*.py"):
+            self.assertEqual(source.read_bytes(), (destination / source.relative_to(project)).read_bytes())
+        notebook = json.loads((destination / "eval/colab_eval.ipynb").read_text())
+        self.assertEqual(notebook["nbformat"], 4)
 
     def test_expired_cookie_logs_into_the_existing_account(self):
         account = {"username": "colab_persistent", "password": "internal-generated-test-password"}

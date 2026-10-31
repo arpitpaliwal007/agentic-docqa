@@ -1,0 +1,403 @@
+[
+  {
+    "id": "q01",
+    "question": "According to Northstar policy, how long after delivery can I request a standard return?",
+    "reference_answer": "Customers may request a return within 30 calendar days of delivery.",
+    "source": [
+      "refunds.md"
+    ],
+    "must_contain": [
+      "30 calendar days"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "refunds.md",
+        "phrase": "30 calendar days"
+      }
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "According to Northstar policy, when is an approved refund issued after warehouse inspection?",
+    "reference_answer": "Approved refunds are issued to the original payment method within 5 business days after warehouse inspection.",
+    "source": [
+      "refunds.md"
+    ],
+    "must_contain": [
+      "5 business days"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "refunds.md",
+        "phrase": "5 business days"
+      }
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "What does Northstar charge for standard shipping?",
+    "reference_answer": "Standard shipping costs $6.",
+    "source": [
+      "shipping.md"
+    ],
+    "must_contain": [
+      "Standard shipping costs $6"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "shipping.md",
+        "phrase": "Standard shipping costs $6"
+      }
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "What merchandise subtotal qualifies a Northstar order for free standard shipping?",
+    "reference_answer": "Standard shipping is free on orders with a merchandise subtotal of at least $75.",
+    "source": [
+      "shipping.md"
+    ],
+    "must_contain": [
+      "at least $75"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "shipping.md",
+        "phrase": "at least $75"
+      }
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "According to Northstar account policy, how long does a password reset link last?",
+    "reference_answer": "Password reset links expire after 20 minutes.",
+    "source": [
+      "accounts.md"
+    ],
+    "must_contain": [
+      "20 minutes"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "accounts.md",
+        "phrase": "20 minutes"
+      }
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "According to Northstar account policy, how long can an owner cancel a deletion request?",
+    "reference_answer": "An account deletion request has a 14-day cancellation period before deletion becomes final.",
+    "source": [
+      "accounts.md"
+    ],
+    "must_contain": [
+      "14-day cancellation period"
+    ],
+    "answerable": true,
+    "type": "single_fact",
+    "evidence": [
+      {
+        "source": "accounts.md",
+        "phrase": "14-day cancellation period"
+      }
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "For the Northstar Aurora Hub A2, what is the manufacturing-defect warranty period and how long is the standard return window?",
+    "reference_answer": "WRT-A2-24 provides 24 months of manufacturing-defect coverage for the Aurora Hub A2. Customers may request a return within 30 calendar days of delivery.",
+    "source": [
+      "warranty.md",
+      "refunds.md"
+    ],
+    "must_contain": [
+      "24 months",
+      "30 calendar days"
+    ],
+    "answerable": true,
+    "type": "multi_part",
+    "evidence": [
+      {
+        "source": "warranty.md",
+        "phrase": "24 months"
+      },
+      {
+        "source": "refunds.md",
+        "phrase": "30 calendar days"
+      }
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "What is the Northstar Plus monthly price, how many members does it include, and how many devices can it connect?",
+    "reference_answer": "The Plus plan costs $12 per month and includes 5 workspace members and 20 connected devices.",
+    "source": [
+      "pricing.md"
+    ],
+    "must_contain": [
+      "$12 per month",
+      "5 workspace members",
+      "20 connected devices"
+    ],
+    "answerable": true,
+    "type": "multi_part",
+    "evidence": [
+      {
+        "source": "pricing.md",
+        "phrase": "$12 per month"
+      },
+      {
+        "source": "pricing.md",
+        "phrase": "5 workspace members"
+      },
+      {
+        "source": "pricing.md",
+        "phrase": "20 connected devices"
+      }
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "What does Northstar Express shipping cost, how long does it take after dispatch, and are standard outbound fees refunded for a change-of-mind return?",
+    "reference_answer": "Express shipping costs $18 and arrives in 1-2 business days after dispatch. Standard outbound shipping fees are not refunded for change-of-mind returns.",
+    "source": [
+      "shipping.md",
+      "refunds.md"
+    ],
+    "must_contain": [
+      "$18",
+      "1-2 business days",
+      "not refunded"
+    ],
+    "answerable": true,
+    "type": "multi_part",
+    "evidence": [
+      {
+        "source": "shipping.md",
+        "phrase": "$18"
+      },
+      {
+        "source": "shipping.md",
+        "phrase": "1-2 business days"
+      },
+      {
+        "source": "refunds.md",
+        "phrase": "not refunded"
+      }
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "According to Northstar refund policy, can I send a device back if I threw away its box?",
+    "reference_answer": "Original packaging is helpful but is not required.",
+    "source": [
+      "refunds.md"
+    ],
+    "must_contain": [
+      "not required"
+    ],
+    "answerable": true,
+    "type": "paraphrase",
+    "evidence": [
+      {
+        "source": "refunds.md",
+        "phrase": "not required"
+      }
+    ]
+  },
+  {
+    "id": "q11",
+    "question": "According to Northstar pricing policy, if I cancel my paid plan today do my paid features disappear immediately?",
+    "reference_answer": "Cancellation takes effect at the end of the current paid billing period. The owner retains paid features until that period ends.",
+    "source": [
+      "pricing.md"
+    ],
+    "must_contain": [
+      "end of the current paid billing period"
+    ],
+    "answerable": true,
+    "type": "paraphrase",
+    "evidence": [
+      {
+        "source": "pricing.md",
+        "phrase": "end of the current paid billing period"
+      }
+    ]
+  },
+  {
+    "id": "q12",
+    "question": "According to Northstar shipping policy, when should I contact support if my package tracking stops changing?",
+    "reference_answer": "If a parcel has no tracking movement for 5 business days, contact support with the order number and tracking code.",
+    "source": [
+      "shipping.md"
+    ],
+    "must_contain": [
+      "5 business days"
+    ],
+    "answerable": true,
+    "type": "paraphrase",
+    "evidence": [
+      {
+        "source": "shipping.md",
+        "phrase": "5 business days"
+      }
+    ]
+  },
+  {
+    "id": "q13",
+    "question": "According to Northstar warranty policy, is damage from accidentally spilling water on my device covered?",
+    "reference_answer": "Accidental liquid damage is excluded.",
+    "source": [
+      "warranty.md"
+    ],
+    "must_contain": [
+      "Accidental liquid damage is excluded"
+    ],
+    "answerable": true,
+    "type": "paraphrase",
+    "evidence": [
+      {
+        "source": "warranty.md",
+        "phrase": "Accidental liquid damage is excluded"
+      }
+    ]
+  },
+  {
+    "id": "q14",
+    "question": "According to Northstar warranty policy, which product and coverage duration does WRT-A2-24 identify?",
+    "reference_answer": "WRT-A2-24 provides 24 months of manufacturing-defect coverage for the Aurora Hub A2.",
+    "source": [
+      "warranty.md"
+    ],
+    "must_contain": [
+      "WRT-A2-24",
+      "24 months",
+      "Aurora Hub A2"
+    ],
+    "answerable": true,
+    "type": "exact_identifier",
+    "evidence": [
+      {
+        "source": "warranty.md",
+        "phrase": "WRT-A2-24"
+      },
+      {
+        "source": "warranty.md",
+        "phrase": "24 months"
+      },
+      {
+        "source": "warranty.md",
+        "phrase": "Aurora Hub A2"
+      }
+    ]
+  },
+  {
+    "id": "q15",
+    "question": "According to Northstar pricing policy, what does TRIAL-PLUS-14 provide, and does it require a payment card?",
+    "reference_answer": "TRIAL-PLUS-14 provides a 14-day Plus trial to a new account. No payment card is required to start this trial.",
+    "source": [
+      "pricing.md"
+    ],
+    "must_contain": [
+      "TRIAL-PLUS-14",
+      "14-day Plus trial",
+      "No payment card is required"
+    ],
+    "answerable": true,
+    "type": "exact_identifier",
+    "evidence": [
+      {
+        "source": "pricing.md",
+        "phrase": "TRIAL-PLUS-14"
+      },
+      {
+        "source": "pricing.md",
+        "phrase": "14-day Plus trial"
+      },
+      {
+        "source": "pricing.md",
+        "phrase": "No payment card is required"
+      }
+    ]
+  },
+  {
+    "id": "q16",
+    "question": "According to Northstar account policy, what is ACC-REC-8 and can each code be reused?",
+    "reference_answer": "ACC-REC-8 consists of 8 single-use codes. Each recovery code works once.",
+    "source": [
+      "accounts.md"
+    ],
+    "must_contain": [
+      "ACC-REC-8",
+      "8 single-use codes",
+      "Each recovery code works once"
+    ],
+    "answerable": true,
+    "type": "exact_identifier",
+    "evidence": [
+      {
+        "source": "accounts.md",
+        "phrase": "ACC-REC-8"
+      },
+      {
+        "source": "accounts.md",
+        "phrase": "8 single-use codes"
+      },
+      {
+        "source": "accounts.md",
+        "phrase": "Each recovery code works once"
+      }
+    ]
+  },
+  {
+    "id": "q17",
+    "question": "According to the Northstar documents, what customs duty percentage is charged on shipments to Canada?",
+    "reference_answer": "The supplied documents do not specify a customs duty percentage for shipments to Canada.",
+    "source": [],
+    "must_contain": [],
+    "answerable": false,
+    "type": "unanswerable",
+    "evidence": []
+  },
+  {
+    "id": "q18",
+    "question": "According to the Northstar documents, what is the full name of the company CEO?",
+    "reference_answer": "The supplied documents do not identify the company CEO.",
+    "source": [],
+    "must_contain": [],
+    "answerable": false,
+    "type": "unanswerable",
+    "evidence": []
+  },
+  {
+    "id": "q19",
+    "question": "According to the Northstar documents, what IP water-resistance rating does the Aurora Hub A2 have?",
+    "reference_answer": "The supplied documents do not specify an IP water-resistance rating for the Aurora Hub A2.",
+    "source": [],
+    "must_contain": [],
+    "answerable": false,
+    "type": "unanswerable",
+    "evidence": []
+  },
+  {
+    "id": "q20",
+    "question": "According to the Northstar documents, what percentage student discount applies to Annual Plus?",
+    "reference_answer": "The supplied documents do not specify a student discount for Annual Plus.",
+    "source": [],
+    "must_contain": [],
+    "answerable": false,
+    "type": "unanswerable",
+    "evidence": []
+  }
+]

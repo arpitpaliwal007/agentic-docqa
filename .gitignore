@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 data/
 qdrant_db/
+results/
+eval_work/
+exports/
+.DS_Store

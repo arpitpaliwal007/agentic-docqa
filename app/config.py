@@ -36,10 +36,12 @@ DENSE_MODEL = _s("DENSE_MODEL", "nomic-embed-text")
 DENSE_DIM = _i("DENSE_DIM", 768)
 SPARSE_MODEL = _s("SPARSE_MODEL", "Qdrant/bm25")
 SPARSE_NAME = "sparse"
+RETRIEVAL_MODE = _s("RETRIEVAL_MODE", "hybrid").lower()
 
 # reranker: cross_encoder | llm | none
 RERANKER = _s("RERANKER", "cross_encoder").lower()
 RERANK_MODEL = _s("RERANK_MODEL", "BAAI/bge-reranker-base")
+RERANK_DEVICE = _s("RERANK_DEVICE", "")  # empty preserves sentence-transformers' automatic device choice
 SEARCH_TOP_K = _i("SEARCH_TOP_K", 10)
 RERANK_TOP_M = _i("RERANK_TOP_M", 5)
 FINAL_TOP_N = _i("FINAL_TOP_N", 5)

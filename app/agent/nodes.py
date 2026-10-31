@@ -8,6 +8,7 @@ from langgraph.types import Command
 from app import config
 from app.agent import prompts
 from app.utils import estimate_tokens, parse_json
+from app.agent.observability import emit
 
 ROUTES = {"general_chat", "document_inventory", "document_overview", "document_qa", "needs_clarification"}
 
@@ -38,7 +39,7 @@ def _last_text(state):
 
 
 # ------------------------------------------------------------- outer graph
-def router(state, llm):
+def router(state, llm, observer=None):
     text = _last_text(state)
     fallback = keyword_route(text)
     try:
@@ -54,8 +55,10 @@ def router(state, llm):
         # the model likes "general_chat" too much; trust the doc keywords over it
         if route == "general_chat" and fallback != "general_chat" and state.get("documents"):
             route = fallback
+        emit(observer, "route", route=route)
         return {"route": route, "clarification": str(data.get("clarification") or "")}
     except Exception:
+        emit(observer, "route", route=fallback)
         return {"route": fallback, "clarification": ""}
 
 
@@ -84,8 +87,9 @@ def clarify(state):
     return {"messages": [AIMessage(state.get("clarification") or "Could you say a bit more about what you need?")]}
 
 
-def overview(state, llm):
+def overview(state, llm, observer=None):
     payload = {"previews": state.get("previews", []), "request": _last_text(state)}
+    emit(observer, "preview", content=json.dumps(payload["previews"], ensure_ascii=False))
     return {"messages": [llm.invoke([SystemMessage(prompts.OVERVIEW),
                                      HumanMessage(json.dumps(payload, ensure_ascii=False))])]}
 
@@ -178,12 +182,16 @@ def _grade_msg(grade, reason):
     return AIMessage(f"[grade] {grade}: {reason}")
 
 
-def grade(state, llm):
+def grade(state, llm, observer=None):
     """CRAG step: is what we just retrieved good enough to keep going on?"""
     output = _latest_tool_output(state["messages"])
     retries = state.get("retries", 0)
 
-    def retry(reason):
+    def retry(reason, origin="llm"):
+        emit(observer, "grade", index=state.get("index"), question=state.get("question"),
+             verdict="insufficient", reason=reason, origin=origin,
+             retry_scheduled=retries + 1 <= config.CRAG_MAX_RETRIES,
+             retry_count=retries + 1)
         if retries + 1 > config.CRAG_MAX_RETRIES:
             return Command(update={"messages": [_grade_msg("insufficient", "retry limit reached")],
                                    "retries": retries + 1, "grade_feedback": reason}, goto="fallback")
@@ -193,7 +201,7 @@ def grade(state, llm):
     if not output:
         return Command(update={}, goto="orchestrator")
     if "NO_RELEVANT_CHUNKS" in output or "RETRIEVAL_ERROR" in output:
-        return retry("Nothing relevant came back. Try different wording or a broader query.")
+        return retry("Nothing relevant came back. Try different wording or a broader query.", "retrieval_failure")
     # parent fetches are follow-ups on hits we already graded
     if "Parent ID:" in output and "[Chunk" not in output:
         return Command(update={}, goto="maybe_compress")
@@ -203,9 +211,13 @@ def grade(state, llm):
     except Exception:
         data = {}
     if str(data.get("grade", "")).lower() == "sufficient":
+        emit(observer, "grade", index=state.get("index"), question=state.get("question"),
+             verdict="sufficient", reason=data.get("reason", ""), origin="llm", retry_scheduled=False,
+             retry_count=retries)
         return Command(update={"messages": [_grade_msg("sufficient", data.get("reason", ""))],
                                "retries": 0, "grade_feedback": ""}, goto="maybe_compress")
-    return retry(data.get("reason") or "Results don't answer the question well. Search with a more focused query.")
+    return retry(data.get("reason") or "Results don't answer the question well. Search with a more focused query.",
+                 "llm" if str(data.get("grade", "")).lower() == "insufficient" else "judge_parse_or_call_failure")
 
 
 def maybe_compress(state):
@@ -241,7 +253,9 @@ def compress(state, llm):
     return {"context_summary": notes, "messages": [RemoveMessage(id=m.id) for m in state["messages"][1:]]}
 
 
-def fallback(state, llm):
+def fallback(state, llm, observer=None):
+    reason = "retry_limit" if state.get("retries", 0) > config.CRAG_MAX_RETRIES else "agent_budget"
+    emit(observer, "fallback", index=state.get("index"), question=state.get("question"), reason=reason)
     data = list(dict.fromkeys(str(m.content) for m in state["messages"] if isinstance(m, ToolMessage)))
     ctx = ""
     if state.get("context_summary"):

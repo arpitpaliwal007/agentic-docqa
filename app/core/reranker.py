@@ -10,7 +10,8 @@ log = logging.getLogger(__name__)
 class CrossEncoderReranker:
     def __init__(self, model_name):
         from sentence_transformers import CrossEncoder
-        self.model = CrossEncoder(model_name)
+        kwargs = {"device": config.RERANK_DEVICE} if config.RERANK_DEVICE else {}
+        self.model = CrossEncoder(model_name, **kwargs)
 
     def rerank(self, query, chunks):
         if not chunks:
@@ -42,8 +43,8 @@ class LLMReranker:
 _cache = {}
 
 
-def get_reranker(llm=None):
-    kind = config.RERANKER
+def get_reranker(llm=None, kind=None):
+    kind = config.RERANKER if kind is None else kind
     if kind == "none":
         return None
     if kind not in _cache:

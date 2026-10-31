@@ -92,6 +92,19 @@ drive.mount("/content/drive")
 %run "/content/drive/MyDrive/Agentic DocQA/run_agentic_docqa_colab.py"
 ```
 
+## Evaluation on Google Colab
+
+[`eval/colab_eval.ipynb`](eval/colab_eval.ipynb) runs a five-document, twenty-question
+diagnostic through the real pipeline. It compares dense, hybrid and reranked retrieval,
+then measures model-judged correctness/faithfulness, refusals, latency and CRAG activity.
+Results save after each question to `My Drive/agentic-docqa-eval` and can resume.
+The private repository can be loaded from the updated Drive ZIP without a GitHub token.
+See [`eval/README.md`](eval/README.md) for commands, metric definitions and limitations.
+
+[Open the evaluation notebook in Colab](https://colab.research.google.com/github/arpitpaliwal007/agentic-docqa/blob/main/eval/colab_eval.ipynb)
+(GitHub authorization may be needed because the repository is private; alternatively
+open the notebook file saved in Drive.)
+
 ## Config
 
 See `.env.example`. Agent limits (`MAX_TOOL_CALLS`, `MAX_ITERATIONS`, `CRAG_MAX_RETRIES`) and

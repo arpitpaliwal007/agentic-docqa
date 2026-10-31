@@ -45,14 +45,18 @@ class VectorStore:
                 sparse_vectors_config={config.SPARSE_NAME: qm.SparseVectorParams()},
             )
 
-    def store(self, name) -> QdrantVectorStore:
+    def store(self, name, retrieval_mode=None) -> QdrantVectorStore:
+        mode = retrieval_mode or config.RETRIEVAL_MODE
+        modes = {"dense": RetrievalMode.DENSE, "hybrid": RetrievalMode.HYBRID}
+        if mode not in modes:
+            raise ValueError("retrieval_mode must be dense or hybrid")
         self.ensure(name)
         return QdrantVectorStore(
             client=self.client,
             collection_name=name,
             embedding=VectorStore._dense,
             sparse_embedding=VectorStore._sparse,
-            retrieval_mode=RetrievalMode.HYBRID,
+            retrieval_mode=modes[mode],
             sparse_vector_name=config.SPARSE_NAME,
             validate_collection_config=False,
         )
