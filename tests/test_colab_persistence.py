@@ -98,11 +98,12 @@ class DrivePersistenceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another Drive folder"):
             other.restore(self.runtime)
 
-    def test_runner_bundles_current_app_and_evaluation_notebook(self):
+    def test_runner_bundles_current_app_and_evaluation(self):
         destination = self.base / "project"
         runner.unpack_project(destination)
         project = Path(__file__).resolve().parents[1]
-        for source in (project / "app").rglob("*.py"):
+        for source in [*(project / "app").rglob("*.py"), *(project / "eval").rglob("*.py"),
+                       project / "scripts/repair_eval_judge.py", project / "eval/colab_eval.ipynb"]:
             self.assertEqual(source.read_bytes(), (destination / source.relative_to(project)).read_bytes())
         notebook = json.loads((destination / "eval/colab_eval.ipynb").read_text())
         self.assertEqual(notebook["nbformat"], 4)

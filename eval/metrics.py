@@ -84,13 +84,13 @@ def validate_judgment(value, context):
         raise ValueError("Judge correctness must be a finite number in [0, 1]")
     if type(value.get("abstained")) is not bool or not isinstance(value.get("claims"), list):
         raise ValueError("Judge must supply abstained and claims")
-    for claim in value["claims"]:
+    for index, claim in enumerate(value["claims"]):
         if not isinstance(claim.get("claim"), str) or not claim["claim"].strip() or type(claim.get("supported")) is not bool:
             raise ValueError("Invalid judged claim")
         if claim["supported"]:
             quote = claim.get("evidence_quote")
             if not isinstance(quote, str) or not quote.strip() or normalize(quote) not in normalize(context):
-                raise ValueError("Supported claim needs a literal quote from the captured evidence")
+                raise ValueError(f"claims[{index}]: supported claim needs a literal quote from the captured evidence")
     value = dict(value)
     claims = value["claims"]
     value["faithfulness"] = sum(c["supported"] for c in claims) / len(claims) if claims else None

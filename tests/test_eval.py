@@ -251,6 +251,36 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertIsNone(value["faithfulness"])
         self.assertIn("context budget", value["faithfulness_unavailable_reason"])
 
+    def test_judge_uses_json_schema_and_repairs_nonliteral_quotes(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+        from eval.judge import RESPONSE_FORMAT
+        captured = []
+        def respond(messages, **kwargs):
+            captured.append((list(messages), kwargs))
+            quote = "paraphrased and absent" if len(captured) == 1 else "30 calendar days"
+            return AIMessage(json.dumps({"correctness": 1, "abstained": False,
+                "claims": [{"claim": "The return window is 30 days", "supported": True, "evidence_quote": quote}], "reason": "test"}))
+        value, attempts, _ = judge_answer(RunnableLambda(respond), fixtures()[1][0], "30 days", "within 30 calendar days", 24000)
+        self.assertEqual(value["faithfulness"], 1)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(len(captured[0][0]), 2)
+        self.assertEqual(len(captured[1][0]), 4)
+        self.assertEqual(captured[0][1]["response_format"], RESPONSE_FORMAT)
+        self.assertIn("claims[0]", captured[1][0][-1].content)
+        self.assertIn("copied exactly", captured[1][0][-1].content)
+        self.assertEqual(captured[0][0][1].content, captured[1][0][1].content)
+
+    def test_invalid_json_can_be_repaired_to_a_valid_pure_refusal(self):
+        from langchain_core.messages import AIMessage
+        model = self.fake_model([AIMessage("This is not a JSON response."),
+            AIMessage('{"correctness":1,"abstained":true,"claims":[],"reason":"Not specified"}')])
+        value, attempts, _ = judge_answer(model, fixtures()[1][-1], "The documents do not specify a discount.", "", 24000)
+        self.assertTrue(value["abstained"])
+        self.assertIsNone(value["faithfulness"])
+        self.assertEqual(len(attempts), 2)
+        self.assertIn("JSON object", attempts[0]["error"])
+
     def test_cli_writes_durable_results_and_skips_completed_questions(self):
         from types import SimpleNamespace
         from app import config
@@ -279,6 +309,90 @@ class PipelineIntegrationTests(unittest.TestCase):
             self.assertEqual(list(saved["results"]), ["q01"])
             self.assertEqual(saved["results"]["q01"]["status"], "complete")
             self.assertEqual(len(list((root / "results").glob("*.md"))), 1)
+
+
+class RejudgeTests(unittest.TestCase):
+    def make_source(self):
+        golden = fixtures()[1][:2]
+        records = {}
+        for index, q in enumerate(golden):
+            records[q["id"]] = {**q, "status": "complete" if index == 0 else "error",
+                "retrieval": {mode: {"metrics": retrieval_metrics([], q), "hits": []}
+                              for mode in ("dense", "hybrid", "hybrid_rerank")},
+                "errors": [] if index == 0 else ["Judge failed twice; correctness and faithfulness are unavailable"],
+                "e2e": {"answer": "Saved generated answer", "evidence": "Actual captured tool evidence",
+                        "latency_seconds": 12.3, "events": [], "crag": {"retry_events": 0},
+                        "judgment": {"correctness": 1, "faithfulness": None, "abstained": False} if index == 0 else None,
+                        "judge_attempts": [{"error": "old error"}] if index else []}}
+        metadata = {"fingerprint": "repair-policy-fingerprint", "pipeline_fingerprint": "original-pipeline",
+                    "run_id": "test-repair", "report_basename": "test-repair", "model": "test", "judge_model": "test",
+                    "self_judge": True, "expected_questions": 2, "rejudged_from": "original.partial.json",
+                    "judge_policy": "test-policy", "retained_previous_judgments": 1}
+        return {"metadata": metadata, "results": records}
+
+    def test_only_failed_rejudge_preserves_answers_evidence_and_original_file(self):
+        from eval.rejudge import rejudge_records
+        source = self.make_source()
+        before = copy.deepcopy(source)
+        judgment = {"correctness": 1, "faithfulness": None, "abstained": False, "claims": []}
+        with tempfile.TemporaryDirectory() as directory:
+            results = Results(directory, "repair", source["metadata"])
+            with patch("eval.rejudge.judge_answer", return_value=(judgment, [{"raw": "new judgment"}], .5)) as score, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(rejudge_records(source, results, None, 24000, only_failed=True), 0)
+                self.assertEqual(score.call_count, 1)
+                resumed = Results(directory, "repair", source["metadata"])
+                self.assertEqual(rejudge_records(source, resumed, None, 24000, only_failed=True), 0)
+                self.assertEqual(score.call_count, 1)
+            self.assertEqual(source, before)
+            fixed = results.value["results"]["q02"]
+            self.assertEqual(fixed["e2e"]["answer"], before["results"]["q02"]["e2e"]["answer"])
+            self.assertEqual(fixed["e2e"]["evidence"], before["results"]["q02"]["e2e"]["evidence"])
+            self.assertEqual(fixed["e2e"]["latency_seconds"], 12.3)
+            self.assertEqual(fixed["e2e"]["previous_judge_attempts"], [{"error": "old error"}])
+            self.assertEqual(results.value["results"]["q01"], before["results"]["q01"])
+            self.assertIn("mixes original and repaired judge policies", (Path(directory) / "test-repair.md").read_text())
+
+    def test_failed_repair_stays_unscored_and_does_not_reuse_old_scores(self):
+        from eval.rejudge import rejudge_records
+        source = self.make_source()
+        with tempfile.TemporaryDirectory() as directory:
+            results = Results(directory, "repair", source["metadata"])
+            attempts = [{"error": "still invalid"}, {"error": "still invalid"}]
+            with patch("eval.rejudge.judge_answer", return_value=(None, attempts, .5)), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(rejudge_records(source, results, None, 24000), 1)
+            for record in results.value["results"].values():
+                self.assertIsNone(record["e2e"]["judgment"])
+                self.assertEqual(record["status"], "error")
+                self.assertIn("still invalid", record["errors"][-1])
+
+    def test_rejudge_cli_records_provenance_and_resumes_without_agent_calls(self):
+        from eval.rejudge import main as rejudge_main
+        source = self.make_source()
+        source["metadata"].update(ollama={"model_digests": {"test": "weights-sha"}})
+        judgment = {"correctness": 1, "faithfulness": None, "abstained": False, "claims": []}
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original.partial.json"
+            original.write_text(json.dumps(source))
+            raw = original.read_bytes()
+            with patch.dict(os.environ), \
+                 patch("eval.rejudge.runtime_info", return_value={"packages": {}, "gpu": "test"}), \
+                 patch("eval.rejudge.ollama_info", return_value={"version": "test", "model_digests": {"test": "weights-sha"}}), \
+                 patch("eval.rejudge.make_judge", return_value=None), \
+                 patch("eval.rejudge.judge_answer", return_value=(judgment, [{"raw": "new reply"}], .5)) as judge, \
+                 patch("eval.run_eval.initialize_pipeline", side_effect=AssertionError("must not run the agent")), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                args = [str(original), "--judge-context-chars", "3000"]
+                self.assertEqual(rejudge_main(args), 0)
+                self.assertEqual(rejudge_main(args), 0)
+                self.assertEqual(judge.call_count, 2)
+            self.assertEqual(original.read_bytes(), raw)
+            outputs = list((Path(directory) / "rejudged").glob("*.partial.json"))
+            self.assertEqual(len(outputs), 1)
+            saved = json.loads(outputs[0].read_text())
+            self.assertEqual(saved["metadata"]["pipeline_fingerprint"], source["metadata"]["fingerprint"])
+            self.assertEqual(saved["metadata"]["judge_context_chars"], 3000)
+            self.assertEqual(saved["metadata"]["retained_previous_judgments"], 0)
+            self.assertTrue(saved["metadata"]["self_judge"])
 
 
 if __name__ == "__main__":

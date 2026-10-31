@@ -33,7 +33,7 @@ reporting an unreranked run as reranked. Its actual device is recorded.
 
 ## Resume and isolation
 
-On Colab, output is written directly to `My Drive/agentic-docqa-eval`. A stable
+On Colab, output is written directly to `My Drive/Agentic DocQA/evaluation-results`. A stable
 `<run-id>.partial.json` is replaced after **every completed question**, before moving
 on. Repeating the command skips compatible completed questions and retries errors.
 Timestamped JSON and Markdown reports are regenerated after each question too.
@@ -80,8 +80,12 @@ Ollama logs also persist under the evaluation results folder.
   claims and gets N/A faithfulness. Claim extraction and support judgments remain
   model estimates, not independently verified truth. If the evidence exceeds the
   judge budget, faithfulness is N/A and the truncation reason is recorded.
-- Invalid judge output gets one retry and then an explicit error, never a default
-  score of zero. Raw replies, errors, answers and evidence remain in JSON. The
+- Judge replies use an Ollama-compatible JSON schema. Invalid output gets one retry
+  containing the exact validation error and the original reply, then an explicit
+  error if still invalid. Literal evidence checks remain strict. A pure refusal
+  must have an empty claim list; it cannot cite missing information as a supported
+  company-policy fact. Raw replies, repair feedback, errors, answers and evidence
+  remain in JSON; errors never receive a default score of zero. The
   summary separates correct refusals on unanswerable questions from wrong refusals
   on answerable questions. Clarification is not automatically treated as refusal.
 - CRAG counts distinguish explicit LLM insufficiency from empty retrieval and
@@ -98,6 +102,42 @@ includes real LangGraph/tool tests with fake model replies when dependencies are
 installed. Fixture/metric/storage/notebook checks also run without those packages.
 The full GPU evaluation must be executed on Colab; no benchmark numbers have been
 invented or committed.
+
+## Repair saved judgments without rerunning the agent
+
+For an existing Colab session, upload `scripts/repair_eval_judge.py` into the
+Colab Files panel and run this in a new code cell. Keep Drive mounted and Ollama
+running from the existing notebook:
+
+```python
+%run /content/repair_eval_judge.py
+```
+
+The standalone file carries the updated evaluation modules, backs up replaced
+code, and selects the newest original `.partial.json` in the shared results
+folder. It starts a fresh Python process to judge **all saved answers** uniformly
+under the new policy. It does not install packages, pull models, build an index,
+run retrieval, or generate answers. Source results remain unchanged. New JSON,
+Markdown, code backups, a copy of the repair file and a live console log go into
+`My Drive/Agentic DocQA/evaluation-results/rejudged`.
+
+Use `--only-failed` to rejudge just the failed judgments; that report explicitly
+identifies retained original successful scores and the mixed judge policies.
+Use `--source "/full/path/to/run.partial.json"` if selecting a specific saved run.
+The equivalent command from an updated checkout is:
+
+```bash
+python eval/rejudge.py /path/to/original.partial.json
+# Faster selective repair:
+python eval/rejudge.py /path/to/original.partial.json --only-failed
+```
+
+The saved answer, captured evidence, retrieval results, CRAG events and original
+answer latency are preserved. Previous judgments/attempts are retained separately.
+New report identity records the source file hash, original pipeline fingerprint,
+judge policy/code, actual judge model weights, context budget and current runtime.
+Repeating the same repair command resumes completed new judgments. Failed repairs
+remain explicitly unscored with their validation errors; no scores are invented.
 
 ## Application changes
 

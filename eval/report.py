@@ -19,7 +19,7 @@ def render_report(value):
     judged = [r for r in completed if r.get("e2e", {}).get("judgment")]
     lines = ["# Agentic DocQA evaluation", "", f"Run: `{metadata['run_id']}`",
              f"Model: `{metadata['model']}`; judge: `{metadata['judge_model']}`.",
-             f"Completed: {len(completed)}/{metadata['expected_questions']}; errors: {len(results) - len(completed)}.", "",
+             f"Completed: {len(completed)}/{metadata['expected_questions']}; errors: {sum(r['status'] == 'error' for r in results)}; pending: {sum(r['status'] not in {'complete', 'error'} for r in results)}.", "",
              "This is a 20-question synthetic diagnostic, not an estimate of production quality.",
              "Judge scores are model estimates. " + ("The answering model also judges itself." if metadata["self_judge"] else "A separately configured model performs judging."),
              "", "## Summary", "", "| Metric | Value | Scored questions |", "|---|---:|---:|"]
@@ -27,6 +27,11 @@ def render_report(value):
         lines[6:6] = [f"Setup/runtime error: {cell(value['last_setup_or_runtime_error'])}", ""]
     if metadata.get("skip_e2e"):
         lines[6:6] = ["Retrieval-only run: end-to-end generation and judging were skipped.", ""]
+    if metadata.get("rejudged_from"):
+        retained = metadata.get("retained_previous_judgments", 0)
+        lines[6:6] = [f"Rejudged saved answers/evidence from `{metadata['pipeline_fingerprint']}`. The agent and retrieval were not rerun.",
+                      f"Judge policy: `{metadata['judge_policy']}`. Previous successful judgments retained: {retained}.",
+                      "This report mixes original and repaired judge policies." if retained else "All available answers are judged under the new policy as this pass completes.", ""]
     for key in ("correctness", "faithfulness"):
         scores = [r["e2e"]["judgment"].get(key) for r in judged]
         lines.append(f"| {key} | {show(mean(scores))} | {sum(v is not None for v in scores)} |")
