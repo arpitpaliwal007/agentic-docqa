@@ -75,7 +75,22 @@ answer = docqa.ask("Summarize my document")
 The runner includes a snapshot of the project source, installs dependencies and Ollama, downloads
 the models, and checks GPU use. It requires no Docker or GitHub token. The app runs locally inside
 Colab and is used through the notebook. Initial setup and model downloads take time.
-Call `docqa.stop()` before rerunning setup. Runtime files are temporary and are not backed up to Drive.
+The runner mounts Google Drive and saves to **My Drive/Agentic DocQA**. Allow the mount prompt.
+Project source and model/download caches persist there; uploads, extracted text, chunks, chats,
+account state, logs, and the search index are checkpointed after each upload or completed question.
+Previous checkpoints are retained in `snapshots/`, and the latest one is restored on a fresh runtime.
+Use `docqa.save()` for an extra checkpoint and `docqa.stop()` before rerunning setup.
+The live database stays on Colab's local disk; backups use SQLite's online backup API.
+Python packages are reinstalled on a fresh runtime, and in-progress agent execution restarts after
+a disconnect. Model caches occupy several GB of Drive storage.
+
+After the first run, the runner itself is saved in Drive, so subsequent sessions can start with:
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+%run "/content/drive/MyDrive/Agentic DocQA/run_agentic_docqa_colab.py"
+```
 
 ## Config
 
