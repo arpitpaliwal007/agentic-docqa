@@ -82,9 +82,18 @@ Ollama logs also persist under the evaluation results folder.
   judge budget, faithfulness is N/A and the truncation reason is recorded.
 - Judge replies use an Ollama-compatible JSON schema. Invalid output gets one retry
   containing the exact validation error and the original reply, then an explicit
-  error if still invalid. Literal evidence checks remain strict. A pure refusal
+  error if still invalid. The schema limits quote choices to actual captured source
+  lines/paragraphs plus an empty string; it cannot quote the answer or reference
+  unless that exact passage also exists in retrieved evidence. Literal evidence
+  checks remain strict. A pure refusal
   must have an empty claim list; it cannot cite missing information as a supported
-  company-policy fact. Raw replies, repair feedback, errors, answers and evidence
+  company-policy fact. When an abstention includes claims, a separate answer-only
+  extraction checks for factual policy assertions. Only if that
+  extraction finds none does the retry schema require an empty claim list; mixed
+  answers keep their factual assertions and the same literal-evidence checks.
+  This additional model classification and its constraint are recorded, not a
+  heuristic score override. Correctness is still assigned by the judge against
+  the reference and answerability. Raw replies, repair feedback, errors, answers and evidence
   remain in JSON; errors never receive a default score of zero. The
   summary separates correct refusals on unanswerable questions from wrong refusals
   on answerable questions. Clarification is not automatically treated as refusal.

@@ -63,6 +63,16 @@ class FixtureAndMetricTests(unittest.TestCase):
             {"claim": "two", "supported": False}]}, "real evidence")
         self.assertEqual(score["faithfulness"], .5)
 
+    def test_quote_schema_contains_only_actual_lines_and_paragraphs(self):
+        from eval.judge import evidence_response_format
+        context = "File: tickets.md\nTickets cost $12.\nRefunds take five days.\n\nAnother captured paragraph."
+        format_ = evidence_response_format(context)
+        quotes = format_["json_schema"]["schema"]["properties"]["claims"]["items"]["properties"]["evidence_quote"]["enum"]
+        self.assertIn("Tickets cost $12.", quotes)
+        self.assertIn("File: tickets.md\nTickets cost $12.\nRefunds take five days.", quotes)
+        self.assertTrue(all(not quote or quote in context for quote in quotes))
+        self.assertEqual(evidence_response_format("")["json_schema"]["schema"]["properties"]["claims"]["items"]["properties"]["evidence_quote"]["enum"], [""])
+
     def test_trace_counts_retry_events_after_counter_reset(self):
         trace = Trace()
         trace({"kind": "grade", "verdict": "insufficient", "origin": "llm", "retry_scheduled": True})
@@ -254,7 +264,7 @@ class PipelineIntegrationTests(unittest.TestCase):
     def test_judge_uses_json_schema_and_repairs_nonliteral_quotes(self):
         from langchain_core.messages import AIMessage
         from langchain_core.runnables import RunnableLambda
-        from eval.judge import RESPONSE_FORMAT
+        from eval.judge import evidence_response_format
         captured = []
         def respond(messages, **kwargs):
             captured.append((list(messages), kwargs))
@@ -266,7 +276,7 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
         self.assertEqual(len(captured[0][0]), 2)
         self.assertEqual(len(captured[1][0]), 4)
-        self.assertEqual(captured[0][1]["response_format"], RESPONSE_FORMAT)
+        self.assertEqual(captured[0][1]["response_format"], evidence_response_format("within 30 calendar days"))
         self.assertIn("claims[0]", captured[1][0][-1].content)
         self.assertIn("copied exactly", captured[1][0][-1].content)
         self.assertEqual(captured[0][0][1].content, captured[1][0][1].content)
@@ -280,6 +290,46 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertIsNone(value["faithfulness"])
         self.assertEqual(len(attempts), 2)
         self.assertIn("JSON object", attempts[0]["error"])
+
+    def test_refusal_claim_scope_constrains_repair_without_assigning_scores(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+        calls = []
+        def respond(messages, **kwargs):
+            calls.append((list(messages), kwargs))
+            name = kwargs["response_format"]["json_schema"]["name"]
+            if name == "answer_claim_scope":
+                self.assertEqual(json.loads(messages[1].content), {"answer": "The notes do not identify the architect."})
+                return AIMessage('{"factual_claims":[]}')
+            if len(calls) == 1:
+                return AIMessage('{"correctness":0,"abstained":true,"claims":[{"claim":"The notes omit the name","supported":true,"evidence_quote":""}],"reason":"refusal"}')
+            self.assertEqual(kwargs["response_format"]["json_schema"]["schema"]["properties"]["claims"]["maxItems"], 0)
+            return AIMessage('{"correctness":1,"abstained":true,"claims":[],"reason":"Unanswerable, so refusal is correct"}')
+        value, attempts, _ = judge_answer(RunnableLambda(respond), fixtures()[1][-1],
+                                         "The notes do not identify the architect.", "A real excerpt", 24000)
+        self.assertEqual(value["correctness"], 1)
+        self.assertIsNone(value["faithfulness"])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(attempts[0]["claim_scope"]["factual_claims"], [])
+        self.assertEqual(attempts[0]["repair_constraints"], {"claims_max_items": 0})
+
+    def test_mixed_answer_scope_keeps_factual_claims_and_evidence_checks(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+        calls = []
+        def respond(messages, **kwargs):
+            calls.append(kwargs)
+            if kwargs["response_format"]["json_schema"]["name"] == "answer_claim_scope":
+                return AIMessage('{"factual_claims":["Tickets cost $12"]}')
+            self.assertNotIn("maxItems", kwargs["response_format"]["json_schema"]["schema"]["properties"]["claims"])
+            quote = "missing" if len(calls) == 1 else "Tickets cost $12"
+            return AIMessage(json.dumps({"correctness": .5, "abstained": True, "claims": [
+                {"claim": "Tickets cost $12", "supported": True, "evidence_quote": quote}]}))
+        value, attempts, _ = judge_answer(RunnableLambda(respond), fixtures()[1][0],
+                                         "Tickets cost $12; the refund deadline is not stated", "Tickets cost $12", 24000)
+        self.assertEqual(value["faithfulness"], 1)
+        self.assertEqual(len(value["claims"]), 1)
+        self.assertNotIn("repair_constraints", attempts[0])
 
     def test_cli_writes_durable_results_and_skips_completed_questions(self):
         from types import SimpleNamespace
