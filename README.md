@@ -95,10 +95,12 @@ drive.mount("/content/drive")
 ## Evaluation on Google Colab
 
 [`eval/colab_eval.ipynb`](eval/colab_eval.ipynb) runs a five-document, twenty-question
-diagnostic through the real pipeline. It compares dense, hybrid and reranked retrieval,
-then measures model-judged correctness/faithfulness, refusals, latency and CRAG activity.
-Results save after each question to `My Drive/agentic-docqa-eval` and can resume.
-The private repository can be loaded from the updated Drive ZIP without a GitHub token.
+diagnostic through the real pipeline. Eval v2 compares dense, hybrid and reranked
+retrieval with Nomic task prefixes off/on using separate indexes. It reports two-pass
+judge means/disagreements, key-fact recall, rule/judge/combined refusals, actual agent
+retrieval and CRAG activity. Results save after each question to
+`My Drive/Agentic DocQA/evaluation-results/v2/` and can resume.
+The private repository can be loaded from `agentic-docqa-v2.zip` in Drive without a GitHub token.
 See [`eval/README.md`](eval/README.md) for commands, metric definitions and limitations.
 
 [Open the evaluation notebook in Colab](https://colab.research.google.com/github/arpitpaliwal007/agentic-docqa/blob/main/eval/colab_eval.ipynb)
@@ -112,6 +114,14 @@ chunk sizes are in `app/config.py` and can all be set by env var.
 
 Set `RERANKER=llm` to rerank with the LLM instead of downloading a cross-encoder, or `none` to skip.
 Set `LLAMA_CLOUD_API_KEY` to parse PDFs with LlamaParse instead of pymupdf4llm.
+
+`NOMIC_PREFIXES=true` (default) adds `search_document: ` and `search_query: ` only
+when embedding with a model whose name starts with `nomic-embed`. Stored document
+text stays unchanged. **Existing users must re-upload every document** to replace
+old unprefixed vectors before using the new default. Re-uploading replaces that
+document's index entries. Changing this flag or the embedding model requires the
+same re-indexing; the app does not silently erase users' libraries. Eval v2 always
+rebuilds its own isolated eval user and both ablation indexes.
 
 ## Layout
 

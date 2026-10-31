@@ -33,6 +33,7 @@ LLM_MODEL = _s("LLM_MODEL", "qwen2.5:7b")
 LLM_TEMPERATURE = _f("LLM_TEMPERATURE", 0.0)
 OLLAMA_HOST = _s("OLLAMA_HOST", "http://localhost:11434")
 DENSE_MODEL = _s("DENSE_MODEL", "nomic-embed-text")
+NOMIC_PREFIXES = _b("NOMIC_PREFIXES", True)
 DENSE_DIM = _i("DENSE_DIM", 768)
 SPARSE_MODEL = _s("SPARSE_MODEL", "Qdrant/bm25")
 SPARSE_NAME = "sparse"

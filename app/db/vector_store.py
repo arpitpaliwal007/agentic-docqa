@@ -2,12 +2,34 @@
 import atexit
 import threading
 
+from langchain_core.embeddings import Embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from app import config
+
+
+class TaskPrefixEmbeddings(Embeddings):
+    """Apply Nomic task instructions only to embedding inputs, never stored text."""
+    def __init__(self, base, model, enabled=True):
+        self.base = base
+        self.enabled = enabled and model.lower().startswith("nomic-embed")
+
+    def embed_documents(self, texts):
+        inputs = ["search_document: " + text for text in texts] if self.enabled else list(texts)
+        return self.base.embed_documents(inputs)
+
+    def embed_query(self, text):
+        return self.base.embed_query("search_query: " + text if self.enabled else text)
+
+    async def aembed_documents(self, texts):
+        inputs = ["search_document: " + text for text in texts] if self.enabled else list(texts)
+        return await self.base.aembed_documents(inputs)
+
+    async def aembed_query(self, text):
+        return await self.base.aembed_query("search_query: " + text if self.enabled else text)
 
 
 class VectorStore:
@@ -45,7 +67,7 @@ class VectorStore:
                 sparse_vectors_config={config.SPARSE_NAME: qm.SparseVectorParams()},
             )
 
-    def store(self, name, retrieval_mode=None) -> QdrantVectorStore:
+    def store(self, name, retrieval_mode=None, *, nomic_prefixes=None) -> QdrantVectorStore:
         mode = retrieval_mode or config.RETRIEVAL_MODE
         modes = {"dense": RetrievalMode.DENSE, "hybrid": RetrievalMode.HYBRID}
         if mode not in modes:
@@ -54,7 +76,8 @@ class VectorStore:
         return QdrantVectorStore(
             client=self.client,
             collection_name=name,
-            embedding=VectorStore._dense,
+            embedding=TaskPrefixEmbeddings(VectorStore._dense, config.DENSE_MODEL,
+                                           config.NOMIC_PREFIXES if nomic_prefixes is None else nomic_prefixes),
             sparse_embedding=VectorStore._sparse,
             retrieval_mode=modes[mode],
             sparse_vector_name=config.SPARSE_NAME,

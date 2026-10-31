@@ -21,6 +21,7 @@ def build_tools(vector_store, parent_store, llm=None, *, reranker_mode=None, obs
                 emit(observer, "search", query=query, chunks=[], error=None)
                 return "NO_RELEVANT_CHUNKS"
             chunks = [{"content": d.page_content.strip(), "parent_id": d.metadata.get("parent_id", ""),
+                       "chunk_id": d.id or d.metadata.get("_id"),
                        "source": d.metadata.get("source", "")} for d, _ in hits]
             if reranker:
                 chunks = [c for c, _ in reranker.rerank(query, chunks)][: config.RERANK_TOP_M]

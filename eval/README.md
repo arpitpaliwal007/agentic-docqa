@@ -1,166 +1,176 @@
-# Evaluation on Colab
+# Evaluation v2 on Colab
 
-Open `colab_eval.ipynb` in Colab and select a T4 GPU. The notebook's default source
-is `My Drive/Agentic DocQA/agentic-docqa.zip`; this must be the updated project ZIP
-that includes `eval/`. You can instead upload a ZIP or use GitHub with the Colab
-Secret `GITHUB_TOKEN`. The repository remains private. No Docker, tunnel or HTTP
-application server is used. The evaluation calls the actual `UserRAG.ask` pipeline.
+Open `colab_eval.ipynb`, choose a T4 GPU, and use the updated
+`My Drive/Agentic DocQA/agentic-docqa-v2.zip`, upload that ZIP, or select GitHub
+with a repository-scoped Colab Secret `GITHUB_TOKEN`. Old project ZIPs are rejected.
+The repo stays private; no Docker, tunnel or HTTP application server is needed.
 
-The notebook installs requirements, checks fixtures, runs offline tests, starts
-Ollama and verifies GPU use, pulls the models, runs a two-question smoke test, then
-runs all 20 questions. The default answer model is `qwen2.5:7b`, with `qwen2.5:3b`
-available in a form field. `EVAL_LLM_MODEL` or `--model` also selects the answer
-model. `EVAL_JUDGE_MODEL` or `--judge-model` optionally chooses a different judge;
-by default the answer model judges itself and the report states that limitation.
+The notebook checks the GPU, loads source, installs requirements, runs offline
+checks, starts Ollama, pulls selected models, verifies GPU loading, runs a two-question
+smoke test, then runs all 20 questions. Code/output cells in the committed notebook
+have no saved benchmark outputs. New reports, partial saves and logs use
+`My Drive/Agentic DocQA/evaluation-results/v2/`; smoke uses `v2/smoke/`.
 
-## CLI
+Form fields:
+
+- `ANSWER_MODEL`: `qwen2.5:7b` by default, with `qwen2.5:3b` available.
+- `JUDGE_MODEL`: empty means the answer model; an alternative is pulled and GPU-checked.
+- `RUN_PREFIX_ABLATION`: true by default; measures all six retrieval conditions.
+- `EVAL_MODE`: full evaluation, or uniform rejudging of saved answers.
+- `SAVED_RESULTS`: the source JSON for rejudging (pre-filled with the previous run).
+
+A separate judge such as the requested `qwen2.5:14b` or `llama3.1:8b` is optional.
+This change has not tested either model's T4 memory fit. The notebook loads one
+model at a time and rejects substantial CPU offload during GPU preflight. Model
+switching between answers and judgments can affect observed answer latency.
+The report names both models and identifies self-judging (including identical
+weight digests under different names).
+
+## Commands
 
 ```bash
-# These checks need no Ollama or model downloads.
+# No Ollama or downloads needed:
 python eval/run_eval.py --validate-only
 python -m unittest discover -s tests -v
 
-# After installing requirements and starting Ollama with both models pulled:
-python eval/run_eval.py --model qwen2.5:7b --limit 2 --out results/smoke
-python eval/run_eval.py --model qwen2.5:7b --out results
-python eval/run_eval.py --skip-e2e --out results/retrieval-only
+# Ollama running, requirements installed and selected models already pulled:
+python eval/run_eval.py --model qwen2.5:7b --judge-model qwen2.5:7b --limit 2 --out results/v2/smoke
+python eval/run_eval.py --model qwen2.5:7b --judge-model qwen2.5:7b --prefix-ablation --out results/v2
+python eval/run_eval.py --skip-e2e --prefix-ablation --out results/v2/retrieval-only
+python eval/run_eval.py --no-prefix-ablation --out results/v2/no-ablation
+
+# ALL saved answers, both judge passes, one current policy. No agent/retrieval calls:
+python eval/rejudge.py /path/to/old.partial.json --out results/v2/rejudged-all
 ```
 
-The retrieval-only command still requires the embedding model, BM25 model and
-cross-encoder, but makes no LLM calls. Reranking explicitly uses CUDA when available;
-if the requested cross-encoder cannot load, the evaluation fails instead of silently
-reporting an unreranked run as reranked. Its actual device is recorded.
+The notebook's **Rejudge saved answers** mode uses the last command and writes to
+`v2/rejudged-all/`. It does not retain old successful judgments. Every eligible
+saved answer, including all 20 in the previous run, is rejudged. The source file,
+answers, actual evidence, direct retrieval observations, traces and answer latency
+are preserved. Old unprefixed retrieval results cannot supply prefix-on ablation
+numbers: run full evaluation to measure the embedding change.
 
-## Resume and isolation
+`--only-failed` is an explicit compatibility opt-in that retains earlier successes;
+its report is prominently labelled mixed-policy. It is never used by either v2
+notebook mode. Original judgments/attempts are retained separately for audit even
+when all current scores are replaced. Do not report a mixed-policy selective
+repair as a uniform rejudging run.
 
-On Colab, output is written directly to `My Drive/Agentic DocQA/evaluation-results`. A stable
-`<run-id>.partial.json` is replaced after **every completed question**, before moving
-on. Repeating the command skips compatible completed questions and retries errors.
-Timestamped JSON and Markdown reports are regenerated after each question too.
-Smoke results live in a separate `smoke/` directory. `--limit` is not part of run
-identity, so increasing a limit in the same output directory can continue a run.
+For an already configured Colab runtime, the standalone
+`scripts/repair_eval_judge.py` can patch the evaluation modules and rejudge all saved
+answers by default. Upload the file and run `%run /content/repair_eval_judge.py`.
+This helper changes evaluation code only; use the v2 project ZIP for the app's
+embedding change and the full prefix ablation. Its code backups and live log are
+saved beside the new reports. It does not install dependencies or pull models.
 
-Run identity includes corpus, golden questions, relevant app/eval source, settings,
-answer/judge models and weight digests, Ollama version, dependency versions and GPU information. `--run-id` can supply
-a readable stable label; an incompatible existing label is rejected. The CLI is
-intended to run as a fresh Python process, with settings applied before app imports.
+## Metrics and diagnostics
 
-The dedicated `eval_user` is created in a separate local work directory, with its
-own embedded Qdrant database. Only a directory carrying the matching evaluation
-ownership marker is reset. Normal app users, Drive backups and search indexes are
-never used or deleted. A disconnected runtime rebuilds the small corpus and resumes
-question results from Drive; in-progress graph execution is not checkpointed.
-Run one evaluation process per output/run ID at a time.
-Model and package download caches use the existing `My Drive/Agentic DocQA` folder;
-Ollama logs also persist under the evaluation results folder.
+The five fictional Northstar policy documents support 20 questions: six single
+facts, three multi-part, four paraphrases, three exact identifiers and four
+unanswerable questions. Fixture validation checks source-specific reference
+phrases against actual corpus text.
 
-## Metrics and limitations
+**Two-pass judging.** Every answer is scored twice at temperature zero, once with
+the standard instruction and once with a reworded assessment instruction. The
+second pass does not see the first pass. Each pass can repair invalid JSON/evidence
+once, using validation feedback; retries are not votes. Both passes must validate
+before a question gets an average correctness score. Otherwise it remains an
+explicit error, never zero by default. Raw replies, attempts and per-pass scores
+are in JSON. Two-pass disagreement means correctness differs by more than 1e-9 or
+abstention flags differ. Faithfulness is the average of available claim-bearing
+pass scores; the count of scored passes is recorded, and pure-refusal passes are N/A.
+Two similar judgments do not establish correctness; same-model judging is biased.
 
-- The corpus has five fictional policy documents of 1,500-4,000 characters. There
-  are 20 questions: six single facts, three multi-part, four paraphrases, three
-  exact identifiers, and four unanswerable questions. The fixture validator checks
-  source-specific evidence phrases literally against the corpus and references.
-- Each retrieval mode calls the real `search_child_chunks` tool. Dense-only,
-  hybrid/no reranker, and hybrid/cross-encoder share ten candidates, a zero score
-  threshold and the production output/deduplication rules. Reranking retains the
-  production cutoff before parent deduplication. This evaluates the app's returned
-  snippets, not a separately invented search implementation.
-- Relevance requires the expected source and its paired evidence phrase. Hit@5,
-  MRR@5 and precision@5 are reported on answerable questions only; precision always
-  divides by five. Evidence coverage@5 measures how many required facts appear.
-  Unanswerable retrieval metrics are N/A, not zeros.
-- End-to-end questions use fresh thread IDs and empty history. Optional observers
-  capture actual search results, parent fetches, previews, grading decisions and
-  fallback events inside the parallel research graph. Observation does not alter
-  prompts, transitions, answers or the app's default retrieval settings.
-- The temperature-zero judge compares correctness against the reference and checks
-  atomic answer claims against the evidence that the agent actually retrieved.
-  Supporting quotes must occur in that captured context. Faithfulness is the
-  fraction of extracted claims judged supported; a pure refusal has no factual
-  claims and gets N/A faithfulness. Claim extraction and support judgments remain
-  model estimates, not independently verified truth. If the evidence exceeds the
-  judge budget, faithfulness is N/A and the truncation reason is recorded.
-- Judge replies use an Ollama-compatible JSON schema. Invalid output gets one retry
-  containing the exact validation error and the original reply, then an explicit
-  error if still invalid. The schema limits quote choices to actual captured source
-  lines/paragraphs plus an empty string; it cannot quote the answer or reference
-  unless that exact passage also exists in retrieved evidence. Literal evidence
-  checks remain strict. A pure refusal
-  must have an empty claim list; it cannot cite missing information as a supported
-  company-policy fact. When an abstention includes claims, a separate answer-only
-  extraction checks for factual policy assertions. Only if that
-  extraction finds none does the retry schema require an empty claim list; mixed
-  answers keep their factual assertions and the same literal-evidence checks.
-  This additional model classification and its constraint are recorded, not a
-  heuristic score override. Correctness is still assigned by the judge against
-  the reference and answerability. Raw replies, repair feedback, errors, answers and evidence
-  remain in JSON; errors never receive a default score of zero. The
-  summary separates correct refusals on unanswerable questions from wrong refusals
-  on answerable questions. Clarification is not automatically treated as refusal.
-- CRAG counts distinguish explicit LLM insufficiency from empty retrieval and
-  malformed/failed grading calls. Retry events are counted before the agent can
-  reset its retry counter. Correctness for questions with/without retries is a
-  descriptive comparison with group sizes, **not a causal ablation**. Worst-question
-  failure labels, especially suspected grader issues, are diagnostic hypotheses.
-- Answer latency excludes the separate judge and setup. The notebook warms the
-  answer model; cache state and runtime load can still influence comparisons.
+**Evidence checking.** JSON-schema quote choices come only from actual captured
+source lines/paragraphs (plus an empty string), and supported quotes still undergo
+literal validation. An abstention that includes claims gets a separate answer-only
+claim extraction; only an empty extraction constrains repair to `claims=[]`.
+Mixed answers retain their factual assertions. Neither unsupported facts nor
+missing evidence are erased to manufacture a score. Truncated evidence makes
+faithfulness N/A with an explicit reason.
 
-No requirements were pinned for this harness. It adds no dependencies beyond the
-app's requirements; reports record the versions actually used. The offline suite
-includes real LangGraph/tool tests with fake model replies when dependencies are
-installed. Fixture/metric/storage/notebook checks also run without those packages.
-The full GPU evaluation must be executed on Colab; no benchmark numbers have been
-invented or committed.
+**Refusals.** The deterministic phrase detector identifies expressions such as
+"do not contain", "not mentioned", "not specified", "no information", "not
+explicitly stated", "cannot find", "isn't covered" and "doesn't say". Policy
+negations such as "not required" and "not refunded" are not refusal phrases.
+The report shows rule-based, judge-based and combined rates. Judge abstention is
+true if either judge pass abstains; combined = rule OR judge. A partial refusal is
+a rule refusal plus at least one matched required fact. Combined rates include
+partial refusals; flagged IDs and rule-vs-judge disagreements remain visible.
+These are heuristics and can misclassify caveats, quotations or unusual wording.
 
-## Repair saved judgments without rerunning the agent
+**Key-fact recall.** The fraction of `must_contain` phrases present after case,
+whitespace, punctuation, currency (`$12`/`12 dollars`) and common unit normalization.
+Unanswerable entries have N/A recall. It is a literal matching diagnostic, not
+semantic truth: a negated fact or quotation may match and a paraphrase may not.
+`judge_disagreement` flags recall=1 with mean judge correctness<0.5, or recall=0
+with correctness>0.5. It never overwrites a judge score.
 
-For an existing Colab session, upload `scripts/repair_eval_judge.py` into the
-Colab Files panel and run this in a new code cell. Keep Drive mounted and Ollama
-running from the existing notebook:
+**Retrieval.** The real `search_child_chunks` tool compares dense, hybrid without
+reranking and hybrid with a cross-encoder, each with prefixes off and on: six rows.
+Separate collections re-embed the same children for each condition. Document and
+query prefixes match within each condition. Chunk text, sparse inputs, candidate
+count (10), score threshold, pre-dedup reranking cutoff and production parent
+deduplication are held constant. Only returned snippets are scored. Precision@5
+always divides by five. Source AND paired evidence phrase determine relevance.
+Unanswerables are excluded. With 16 answerable questions, one hit/miss changes
+full-set Hit@5 by 6.25 percentage points; partial runs show observed denominators.
 
-```python
-%run /content/repair_eval_judge.py
-```
+**Agent evidence and failure labels.** Agent questions use fresh thread IDs and
+empty history. Search events record actual query strings, source/chunk/parent IDs
+and returned text. Fetched parents and observed previews also count as evidence
+actually seen by the agent. `agent_retrieval_hit` uses all of that evidence, without
+a top-five cutoff; it does not substitute direct-question benchmark searches.
+Grading events capture the exact text passed to each grader, including its existing
+truncation, so parallel branches are not matched by event order. A grader marking
+full required-fact coverage insufficient, or no required fact sufficient, is flagged
+as a `grader issue`; partial coverage is inconclusive. Otherwise unseen required
+evidence gives `retrieval miss (agent queries)`, and a wrong/refused answer despite
+seeing evidence gives `generation error`. Grader contradictions take precedence.
+These labels are diagnostic hypotheses against the golden facts, not proof of cause.
+Older traces lacking per-call grading text cannot retroactively diagnose that grader.
 
-The standalone file carries the updated evaluation modules, backs up replaced
-code, and selects the newest original `.partial.json` in the shared results
-folder. It starts a fresh Python process to judge **all saved answers** uniformly
-under the new policy. It does not install packages, pull models, build an index,
-run retrieval, or generate answers. Source results remain unchanged. New JSON,
-Markdown, code backups, a copy of the repair file and a live console log go into
-`My Drive/Agentic DocQA/evaluation-results/rejudged`.
+Reports include summary, type breakdown, all six retrieval rows, agent hit rate,
+flagged question IDs, CRAG counts, per-question results and the worst three with
+actual agent queries and returned IDs. Retry comparisons remain descriptive rather
+than causal. Answer latency excludes judge/setup, but caches and model reloads matter.
 
-Use `--only-failed` to rejudge just the failed judgments; that report explicitly
-identifies retained original successful scores and the mixed judge policies.
-Use `--source "/full/path/to/run.partial.json"` if selecting a specific saved run.
-The equivalent command from an updated checkout is:
+## Prefix migration and isolation
 
-```bash
-python eval/rejudge.py /path/to/original.partial.json
-# Faster selective repair:
-python eval/rejudge.py /path/to/original.partial.json --only-failed
-```
+Nomic's [official model card](https://huggingface.co/nomic-ai/nomic-embed-text-v1#task-instruction-prefixes)
+requires `search_document: ` for indexed text and `search_query: ` for queries.
+`TaskPrefixEmbeddings` wraps the existing dense embedder and adds them only at the
+embedding boundary when `DENSE_MODEL` starts with `nomic-embed` and
+`NOMIC_PREFIXES=true` (the default). Stored `page_content`, sparse embeddings,
+reranker input, tool output and agent prompts are not prefixed.
 
-The saved answer, captured evidence, retrieval results, CRAG events and original
-answer latency are preserved. Previous judgments/attempts are retained separately.
-New report identity records the source file hash, original pipeline fingerprint,
-judge policy/code, actual judge model weights, context budget and current runtime.
-Repeating the same repair command resumes completed new judgments. Failed repairs
-remain explicitly unscored with their validation errors; no scores are invented.
+Changing prefix configuration invalidates old vectors. Existing app users must
+re-upload all documents; normal libraries are not erased automatically. Every fresh
+eval process resets only its fingerprint-marked evaluation work directory and
+rebuilds the isolated `eval_user`, including both dense-vector conditions. It never
+uses or deletes normal app users, libraries, indexes or Drive source results.
+The answering agent always uses the prefix-on collection, even if ablation is disabled.
 
-## Application changes
+## Resume and provenance
 
-| File | Additive change |
-|---|---|
-| `app/config.py` | `RETRIEVAL_MODE` defaults to hybrid; optional `RERANK_DEVICE` preserves automatic choice when unset. |
-| `app/db/vector_store.py` | Select dense or hybrid retrieval per store, using the same collection. |
-| `app/core/reranker.py` | Optional explicit reranker kind/device; existing default and fallback behavior remain. |
-| `app/agent/observability.py` | Best-effort event delivery; observer failures are logged without changing decisions. |
-| `app/agent/tools.py` | Optional reranker override and observation of actual search/parent results. |
-| `app/agent/nodes.py` | Observe routing, preview evidence, sufficient/insufficient grades, scheduled retries and fallbacks. |
-| `app/agent/graph.py` | Pass the observer into both outer and research graphs. |
-| `app/core/rag.py` | Optional observer parameter on `UserRAG`; existing callers need no changes. |
+A stable `<run-id>.partial.json` is atomically replaced after each question.
+Timestamped JSON and Markdown are regenerated too. Compatible completed questions
+are skipped on resume; failed questions are retried. Rejudging checkpoints each new
+judgment, and resumes completed new judgments under the same policy/source identity.
+One process per output/run ID is supported. A disconnected runtime rebuilds its
+small evaluation corpus; in-progress graph execution is not checkpointed.
 
-The standalone `scripts/run_agentic_docqa_colab.py` source snapshot is refreshed to
-include the new files, and its SQLite backup connections are explicitly closed.
-Existing Drive persistence tests verify the refreshed source too.
+Identity includes app/eval code, fixtures, model names/digests, prefix configuration,
+ablation setting, both judge variants, metric/judge policies, package/runtime/GPU
+information and context budget. `--limit` is not identity, allowing a longer run to
+continue compatible questions (smoke still has a separate directory). A readable
+`--run-id` cannot reuse incompatible results. Rejudging records the original file
+hash and pipeline fingerprint separately from the current judge/runtime identity.
+Use a fresh subprocess so app configuration is applied before cached imports.
+
+No new dependencies or version pins were added. Offline tests use fake model
+responses and embeddings, real LangGraph, and embedded in-memory Qdrant when project
+dependencies are installed. Saved-answer regression fixtures contain exact synthetic
+answers from the previous run, without benchmark scores. No v2 benchmark has been
+run or estimated by this change; full inference and optional larger-judge memory
+fit must be checked on Colab.

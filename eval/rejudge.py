@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from eval.judge import JUDGE_POLICY, judge_answer, judge_failure, make_judge
+from eval.judge import JUDGE_POLICY, JUDGE_VARIANTS, judge_answer, judge_failure, make_judge
+from eval.metrics import METRIC_POLICY, add_diagnostics
 from eval.storage import Results, digest
 from eval.run_eval import failure_type, ollama_info, runtime_info, write_reports
 
@@ -41,6 +42,14 @@ def rejudge_records(source, results, judge, context_limit, only_failed=False):
             e2e["previous_judge_attempts"] = e2e.get("judge_attempts", [])
             e2e["judgment"] = None
             record["status"] = "pending_judge"
+        for record in results.value["results"].values():
+            if not only_failed and not eligible(record) and record.get("e2e", {}).get("judgment"):
+                e2e = record["e2e"]
+                e2e["previous_judgment"] = e2e.pop("judgment")
+                e2e["judgment"] = None
+                record.setdefault("errors", []).append("Cannot rejudge: saved answer/evidence unavailable")
+                record["status"] = "error"
+            add_diagnostics(record, record)
         results.save()
     for key in targets:
         current = results.value["results"][key]
@@ -61,6 +70,7 @@ def rejudge_records(source, results, judge, context_limit, only_failed=False):
             record["errors"].append(judge_failure(attempts))
             print(f"{key}: {record['errors'][-1]}", flush=True)
         record["status"] = "error" if record["errors"] else "complete"
+        add_diagnostics(record, record)
         record["failure_type"] = failure_type(record, record)
         results.put(record)
         write_reports(results)
@@ -73,7 +83,7 @@ def main(argv=None):
     parser.add_argument("source", type=Path, help="Original .partial.json or full JSON report")
     parser.add_argument("--out", type=Path, help="Default: a rejudged/ folder beside the source")
     parser.add_argument("--judge-model", help="Default: the judge model from the saved run")
-    parser.add_argument("--only-failed", action="store_true", help="Faster repair; explicitly retain previous successful judgments")
+    parser.add_argument("--only-failed", action="store_true", help="Opt in to retaining successful old judgments; produces a mixed-policy report. Default rejudges ALL answers.")
     parser.add_argument("--judge-context-chars", type=int, help="Default: the original run's evidence budget")
     args = parser.parse_args(argv)
     raw = args.source.read_bytes()
@@ -99,10 +109,11 @@ def main(argv=None):
     answer_digest = previous.get("ollama", {}).get("model_digests", {}).get(previous["model"])
     same_weights = answer_digest not in {None, "not pulled"} and answer_digest == model_info["model_digests"].get(model)
     code_hash = digest({name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-                        for name in ("eval/judge.py", "eval/metrics.py", "eval/rejudge.py")})
+                        for name in ("eval/judge.py", "eval/metrics.py", "eval/rejudge.py", "eval/run_eval.py", "eval/trace.py")})
     identity = {"source_sha256": hashlib.sha256(raw).hexdigest(), "pipeline_fingerprint": previous["fingerprint"],
                 "judge_policy": JUDGE_POLICY, "judge_code_hash": code_hash, "judge_model": model,
                 "judge_context_chars": context_limit, "only_failed": args.only_failed,
+                "judge_variants": JUDGE_VARIANTS, "metric_policy": METRIC_POLICY,
                 "packages": runtime["packages"], "python_version": sys.version.split()[0], "ollama": model_info}
     fingerprint = digest(identity)
     run_id = "rejudge-" + fingerprint[:16]
@@ -113,6 +124,7 @@ def main(argv=None):
                 "report_basename": f"{now}-{run_id}", "judge_model": model, "judge_policy": JUDGE_POLICY,
                 "self_judge": model == previous["model"] or same_weights, "rejudged_from": str(args.source),
                 "judge_context_chars": context_limit,
+                "judge_variants": JUDGE_VARIANTS, "metric_policy": METRIC_POLICY, "eval_version": 2,
                 "pipeline_fingerprint": previous["fingerprint"], "retained_previous_judgments": retained,
                 "rejudge_identity": identity, "rejudge_runtime": runtime}
     results = Results(out, run_id, metadata)

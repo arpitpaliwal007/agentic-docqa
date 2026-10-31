@@ -12,7 +12,8 @@ import unittest
 from unittest.mock import patch
 
 from eval.metrics import retrieval_metrics, validate_golden, validate_judgment
-from eval.run_eval import ROOT, fixtures, judge_answer
+from eval.run_eval import ROOT, fixtures
+from eval.judge import judge_once as judge_answer
 from eval.run_eval import main
 from eval.storage import Results, prepare_workdir
 from eval.trace import Trace
@@ -207,6 +208,7 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(last.goto, "fallback")
         self.assertEqual(trace.stats()["retry_events"], 1)
         self.assertEqual(trace.stats()["insufficient_events"], 2)
+        self.assertEqual(trace.events[0]["evidence"], "[Chunk 1]\n30 calendar days")
 
     def test_observer_failure_does_not_change_tool_output(self):
         def broken(event):
@@ -399,8 +401,8 @@ class RejudgeTests(unittest.TestCase):
             self.assertEqual(fixed["e2e"]["evidence"], before["results"]["q02"]["e2e"]["evidence"])
             self.assertEqual(fixed["e2e"]["latency_seconds"], 12.3)
             self.assertEqual(fixed["e2e"]["previous_judge_attempts"], [{"error": "old error"}])
-            self.assertEqual(results.value["results"]["q01"], before["results"]["q01"])
-            self.assertIn("mixes original and repaired judge policies", (Path(directory) / "test-repair.md").read_text())
+            self.assertEqual(results.value["results"]["q01"]["e2e"]["judgment"], before["results"]["q01"]["e2e"]["judgment"])
+            self.assertIn("Mixed-policy report", (Path(directory) / "test-repair.md").read_text())
 
     def test_failed_repair_stays_unscored_and_does_not_reuse_old_scores(self):
         from eval.rejudge import rejudge_records

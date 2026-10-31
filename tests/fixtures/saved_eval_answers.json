@@ -1,0 +1,13 @@
+{
+  "source_run": "rejudge-af588f8fd924e7f7",
+  "description": "Exact synthetic-corpus answers read from the saved Colab results; no judge scores are fixtures.",
+  "answers": {
+    "q06": "The provided documents do not contain specific information about the duration for which an owner can cancel a deletion request. The content is primarily focused on account access policies and refund policies, without mentioning the cancellation period for deletion requests.\n\nSources: accounts.md, refunds.md",
+    "q07": "The manufacturing-defect warranty period for the Northstar Aurora Hub A2 is 24 months, starting from the original purchase date. The standard return window is not explicitly stated, but the device may be returned under REF-30 even after activation, with the exception of devices with accidental liquid damage. No specific duration for the return window is mentioned.\n\nSources:\n- warranty.md\n- refunds.md",
+    "q10": "Based on the Northstar Devices Refund Policy, the policy does not explicitly address the situation where the original packaging (box) has been thrown away. However, the policy states that \"Original packaging is helpful but is not required\" for standard returns. This suggests that even if the box has been thrown away, you may still be able to return the device, provided that the device, charger, and original accessories are included.\n\nSources:\n- refunds.md",
+    "q17": "The provided documents do not contain specific information about customs duties on shipments to Canada. The shipping policy focuses on delivery within the continental United States and does not mention customs duties or shipping policies for international destinations such as Canada.\n\nSources:\n- shipping.md",
+    "q18": "After reviewing the provided documents, the full name of the company CEO is not mentioned. The documents discuss company policies and procedures but do not provide information about the CEO's name.\n\nSources:\n- accounts.md\n- shipping.md\n- warranty.md",
+    "q19": "The provided documents do not contain any information about the IP water-resistance rating of the Aurora Hub A2.\n\nSources: warranty.md, refunds.md, pricing.md",
+    "q20": "The documents do not specify a student discount percentage for the Annual Plus plan. There is no direct mention of student discounts or the specifics of the Annual Plus plan regarding discounts.\n\nSources:\n- pricing.md\n- accounts.md\n- refunds.md"
+  }
+}

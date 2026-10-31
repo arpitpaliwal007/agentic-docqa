@@ -18,11 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from eval.metrics import retrieval_metrics, validate_golden
+from eval.metrics import METRIC_POLICY, add_diagnostics, classify_failure, retrieval_metrics, validate_golden
 from eval.report import MODES, render_report
 from eval.storage import Results, atomic_json, code_fingerprint, digest, prepare_workdir
 from eval.trace import Trace
-from eval.judge import JUDGE_POLICY, judge_answer, judge_failure, make_judge
+from eval.judge import JUDGE_POLICY, JUDGE_VARIANTS, judge_answer, judge_failure, make_judge
 
 
 def parse_args(argv=None):
@@ -34,6 +34,8 @@ def parse_args(argv=None):
     p.add_argument("--run-id", help="Optional stable label; incompatible existing results are rejected")
     p.add_argument("--work-root", type=Path, default=Path(tempfile.gettempdir()) / "agentic-docqa-eval-work")
     p.add_argument("--skip-e2e", action="store_true")
+    p.add_argument("--prefix-ablation", action=argparse.BooleanOptionalAction, default=True,
+                   help="Compare independently indexed prefixes-off/on collections (default: on)")
     p.add_argument("--validate-only", action="store_true", help="Validate corpus/golden data without model dependencies")
     p.add_argument("--judge-context-chars", type=int, default=24000)
     args = p.parse_args(argv)
@@ -82,7 +84,7 @@ def ollama_info(models):
             "context_length_environment": os.environ.get("OLLAMA_CONTEXT_LENGTH", "server default")}
 
 
-def initialize_pipeline(work, corpus, skip_e2e):
+def initialize_pipeline(work, corpus, skip_e2e, prefix_ablation=True):
     from app.core.user_store import UserStore
     from app.core.documents import DocumentManager
     from app.db.vector_store import VectorStore
@@ -98,6 +100,16 @@ def initialize_pipeline(work, corpus, skip_e2e):
     if reranker is None:
         raise RuntimeError("Cross-encoder failed to load; refusing to label an unreranked run as reranked")
     vector_store = VectorStore()
+    if prefix_ablation:
+        # This second collection exists only inside the freshly rebuilt eval DB.
+        # Re-embedding is necessary: querying prefixed vectors with unprefixed queries
+        # would confound the ablation. Stored chunks and parent text stay identical.
+        from app.utils import safe_stem
+        unprefixed = vector_store.store(users.collection("eval_user") + "_prefix_off", nomic_prefixes=False)
+        for name in corpus:
+            stem = safe_stem(name)
+            _, children = docs.chunker.chunk(docs.md_dir / f"{stem}.md", source=name, stem=stem)
+            unprefixed.add_documents(children)
     trace = Trace()
     rag = None
     if not skip_e2e:
@@ -106,43 +118,30 @@ def initialize_pipeline(work, corpus, skip_e2e):
     return users, docs, vector_store, rag, trace, str(reranker.model.device)
 
 
-def score_retrieval(q, docs, vdb, collection):
+def score_retrieval(q, docs, vdb, collection, prefix_ablation=True):
     from app.agent.tools import build_tools
     result = {}
-    for label in MODES:
-        trace = Trace()
-        store = vdb.store(collection, retrieval_mode="dense" if label == "dense" else "hybrid")
-        tool = build_tools(store, docs.parents, reranker_mode="cross_encoder" if label == "hybrid_rerank" else "none", observer=trace)[0]
-        started = time.perf_counter()
-        output = tool.invoke({"query": q["question"], "limit": 10})
-        elapsed = time.perf_counter() - started
-        searches = [e for e in trace.events if e["kind"] == "search"]
-        if not searches or searches[-1].get("error") or str(output).startswith("RETRIEVAL_ERROR"):
-            raise RuntimeError(f"{label} retrieval failed: {output}")
-        hits = searches[-1]["chunks"]
-        result[label] = {"metrics": retrieval_metrics(hits, q), "hits": hits, "latency_seconds": elapsed}
+    for prefixes in ((False, True) if prefix_ablation else (True,)):
+        for mode in MODES:
+            label = f"prefix_{'on' if prefixes else 'off'}_{mode}"
+            trace = Trace()
+            name = collection if prefixes else collection + "_prefix_off"
+            store = vdb.store(name, retrieval_mode="dense" if mode == "dense" else "hybrid", nomic_prefixes=prefixes)
+            tool = build_tools(store, docs.parents, reranker_mode="cross_encoder" if mode == "hybrid_rerank" else "none", observer=trace)[0]
+            started = time.perf_counter()
+            output = tool.invoke({"query": q["question"], "limit": 10})
+            elapsed = time.perf_counter() - started
+            searches = [e for e in trace.events if e["kind"] == "search"]
+            if not searches or searches[-1].get("error") or str(output).startswith("RETRIEVAL_ERROR"):
+                raise RuntimeError(f"{label} retrieval failed: {output}")
+            hits = searches[-1]["chunks"]
+            result[label] = {"prefixes": prefixes, "mode": mode, "collection": name,
+                             "metrics": retrieval_metrics(hits, q), "hits": hits, "latency_seconds": elapsed}
     return result
 
 
 def failure_type(q, result):
-    if result["errors"]:
-        return "execution/judge error"
-    e2e = result.get("e2e", {})
-    judgment = e2e.get("judgment") or {}
-    if judgment.get("correctness", 1) >= 1:
-        return "retrieval miss" if result["retrieval"]["hybrid_rerank"]["metrics"]["hit_at_5"] == 0 else "none"
-    hits = []
-    for event in e2e.get("events", []):
-        if event["kind"] == "search":
-            hits.extend(event["chunks"])
-        elif event["kind"] == "parent" and not event.get("error"):
-            hits.append({"source": event["source"], "content": event["text"]})
-    coverage = retrieval_metrics(hits, q, k=max(len(hits), 1))["evidence_coverage_at_5"]
-    if q["answerable"] and hits and coverage < 1:
-        return "retrieval miss"
-    if q["answerable"] and coverage == 1 and e2e.get("crag", {}).get("insufficient_events"):
-        return "grader issue (suspected)"
-    return "generation error"
+    return classify_failure(q, result)
 
 
 def write_reports(results):
@@ -167,6 +166,7 @@ def main(argv=None):
                        "RERANKER": "cross_encoder", "DENSE_MODEL": "nomic-embed-text", "DENSE_DIM": "768",
                        "SEARCH_TOP_K": "10", "RERANK_TOP_M": "5", "FINAL_TOP_N": "5", "SCORE_THRESHOLD": "0",
                        "QDRANT_URL": "", "LANGFUSE_ENABLED": "false"})
+    os.environ["NOMIC_PREFIXES"] = "true"
     import torch
     os.environ["RERANK_DEVICE"] = "cuda" if torch.cuda.is_available() else "cpu"
     from app import config
@@ -179,7 +179,9 @@ def main(argv=None):
     identity = {"code_hash": code_fingerprint(ROOT), "corpus_hash": digest(corpus), "golden_hash": digest(golden),
                 "settings": settings, "judge_model": judge_model, "skip_e2e": args.skip_e2e,
                 "judge_context_chars": args.judge_context_chars, "packages": runtime["packages"], "gpu": runtime["gpu"],
-                "ollama": model_info, "python_version": sys.version.split()[0], "judge_policy": JUDGE_POLICY}
+                "ollama": model_info, "python_version": sys.version.split()[0], "judge_policy": JUDGE_POLICY,
+                "judge_variants": JUDGE_VARIANTS, "metric_policy": METRIC_POLICY, "eval_version": 2,
+                "prefix_ablation": args.prefix_ablation}
     fingerprint = digest(identity)
     run_id = args.run_id or fingerprint[:16]
     now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -203,7 +205,7 @@ def main(argv=None):
     atomic_json(work / "settings.json", identity)
     atomic_json(work / "runtime.json", metadata["runtime"])
     try:
-        users, docs, vdb, rag, trace, device = initialize_pipeline(work, corpus, args.skip_e2e)
+        users, docs, vdb, rag, trace, device = initialize_pipeline(work, corpus, args.skip_e2e, args.prefix_ablation)
         results.value["metadata"]["reranker_device"] = device
         if config.RERANK_DEVICE == "cuda" and not device.startswith("cuda"):
             raise RuntimeError("Requested GPU reranking but the cross-encoder is not on CUDA")
@@ -214,7 +216,7 @@ def main(argv=None):
             print(f"Evaluating {q['id']}: {q['question']}", flush=True)
             result = {**q, "status": "complete", "retrieval": {}, "errors": []}
             try:
-                result["retrieval"] = score_retrieval(q, docs, vdb, users.collection("eval_user"))
+                result["retrieval"] = score_retrieval(q, docs, vdb, users.collection("eval_user"), args.prefix_ablation)
                 if not args.skip_e2e:
                     trace.reset()
                     thread_id = str(uuid.uuid4())
@@ -228,7 +230,8 @@ def main(argv=None):
                         rag.drop_thread(thread_id)
                     result["e2e"]["answer"] = answer
                     judgment, attempts, judge_latency = judge_answer(judge, q, answer, trace.evidence(), args.judge_context_chars)
-                    result["e2e"].update(judgment=judgment, judge_attempts=attempts, judge_latency_seconds=judge_latency)
+                    result["e2e"].update(judgment=judgment, judge_attempts=attempts, judge_latency_seconds=judge_latency,
+                                         judge_policy=JUDGE_POLICY, agent_nomic_prefixes=True)
                     if judgment is None:
                         result["errors"].append(judge_failure(attempts))
                         print(f"{q['id']}: {result['errors'][-1]}", flush=True)
@@ -238,6 +241,7 @@ def main(argv=None):
             except Exception as exc:
                 result["errors"].append(f"{type(exc).__name__}: {exc}")
             result["status"] = "error" if result["errors"] else "complete"
+            add_diagnostics(q, result)
             result["failure_type"] = failure_type(q, result)
             results.put(result)  # Persist after every question, directly in --out (Drive in the notebook).
             write_reports(results)

@@ -189,6 +189,7 @@ def grade(state, llm, observer=None):
 
     def retry(reason, origin="llm"):
         emit(observer, "grade", index=state.get("index"), question=state.get("question"),
+             evidence=output,
              verdict="insufficient", reason=reason, origin=origin,
              retry_scheduled=retries + 1 <= config.CRAG_MAX_RETRIES,
              retry_count=retries + 1)
@@ -212,6 +213,7 @@ def grade(state, llm, observer=None):
         data = {}
     if str(data.get("grade", "")).lower() == "sufficient":
         emit(observer, "grade", index=state.get("index"), question=state.get("question"),
+             evidence=output,
              verdict="sufficient", reason=data.get("reason", ""), origin="llm", retry_scheduled=False,
              retry_count=retries)
         return Command(update={"messages": [_grade_msg("sufficient", data.get("reason", ""))],

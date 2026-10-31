@@ -3,9 +3,10 @@ import copy
 import json
 import time
 
-from eval.metrics import validate_judgment
+from eval.metrics import mean, validate_judgment
 
-JUDGE_POLICY = "literal-evidence-json-schema-v4"
+JUDGE_POLICY = "eval-v2-two-pass-literal-evidence-v1"
+JUDGE_VARIANTS = ("standard", "reworded")
 JUDGE_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
@@ -118,19 +119,26 @@ is not stated' has factual_claims: ['Tickets cost $12']. Return only the JSON ob
     return audit
 
 
-def judge_answer(llm, q, answer, evidence, context_limit):
+def judge_once(llm, q, answer, evidence, context_limit, variant="standard"):
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     from app.utils import parse_json
     context = evidence[:context_limit]
     payload = {"question": q["question"], "reference_answer": q["reference_answer"],
                "answerable": q["answerable"], "answer": answer, "captured_evidence": context}
-    messages = [SystemMessage(JUDGE_PROMPT), HumanMessage(json.dumps(payload))]
+    instruction = JUDGE_PROMPT
+    if variant == "reworded":
+        instruction += ("\nSecond independent assessment: start from the requested facts and compare each "
+                        "with the supplied answer. Accept equivalent wording and explicit negations such "
+                        "as 'not required'. Distinguish a missing part from an incorrect statement. "
+                        "Assess evidence support separately from reference correctness. Do not assume "
+                        "an abstention is incorrect when the question has no documented answer.")
+    messages = [SystemMessage(instruction), HumanMessage(json.dumps(payload))]
     response_format = evidence_response_format(context)
     model = llm.bind(response_format=response_format)
     attempts = []
     started = time.perf_counter()
     for number in range(2):
-        attempt = {"policy": JUDGE_POLICY}
+        attempt = {"policy": JUDGE_POLICY, "variant": variant}
         attempts.append(attempt)
         parsed = None
         try:
@@ -185,6 +193,31 @@ def judge_answer(llm, q, answer, evidence, context_limit):
     return None, attempts, time.perf_counter() - started
 
 
+def judge_answer(llm, q, answer, evidence, context_limit):
+    """Two independent temperature-zero judgments; retries are not extra votes."""
+    started = time.perf_counter()
+    passes, attempts = [], []
+    for index, variant in enumerate(JUDGE_VARIANTS, 1):
+        value, raw_attempts, latency = judge_once(llm, q, answer, evidence, context_limit, variant)
+        attempts.extend({**attempt, "pass": index} for attempt in raw_attempts)
+        passes.append({"variant": variant, "judgment": value, "attempts": raw_attempts, "latency_seconds": latency})
+    elapsed = time.perf_counter() - started
+    if any(item["judgment"] is None for item in passes):
+        return None, attempts, elapsed
+    first, second = [item["judgment"] for item in passes]
+    correctness_difference = abs(first["correctness"] - second["correctness"])
+    judgment = {"policy": JUDGE_POLICY, "passes": passes,
+                "correctness": mean([first["correctness"], second["correctness"]]),
+                "faithfulness": mean([first["faithfulness"], second["faithfulness"]]),
+                "faithfulness_scored_passes": sum(item["faithfulness"] is not None for item in (first, second)),
+                "abstained": first["abstained"] or second["abstained"],
+                "judge_abstention_rate": mean([int(first["abstained"]), int(second["abstained"])]),
+                "correctness_difference": correctness_difference,
+                "judge_run_disagreement": correctness_difference > 1e-9 or first["abstained"] != second["abstained"],
+                "reason": "Arithmetic mean of two independent judgments; judge abstention is true if either pass abstains."}
+    return judgment, attempts, elapsed
+
+
 def judge_failure(attempts):
-    errors = [attempt.get("error", "unknown failure") for attempt in attempts]
-    return "Judge failed twice; correctness and faithfulness are unavailable. " + "; ".join(errors)
+    errors = [f"pass {attempt.get('pass', '?')}: {attempt['error']}" for attempt in attempts if attempt.get("error")]
+    return "Judge failed; correctness and faithfulness are unavailable. " + "; ".join(errors)
