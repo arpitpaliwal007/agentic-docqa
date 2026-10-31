@@ -54,6 +54,29 @@ container).
 Any OpenAI-compatible endpoint works for the LLM: set `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`.
 The model needs tool calling; qwen2.5 7B and up is fine.
 
+### Google Colab
+
+Download [`scripts/run_agentic_docqa_colab.py`](scripts/run_agentic_docqa_colab.py), choose a GPU
+under **Runtime > Change runtime type** in Colab, and upload the Python file using the Files sidebar.
+Run these commands in separate notebook cells:
+
+```python
+%run /content/run_agentic_docqa_colab.py
+```
+
+```python
+docqa.upload()  # select PDF, Markdown or TXT documents
+```
+
+```python
+answer = docqa.ask("Summarize my document")
+```
+
+The runner includes a snapshot of the project source, installs dependencies and Ollama, downloads
+the models, and checks GPU use. It requires no Docker or GitHub token. The app runs locally inside
+Colab and is used through the notebook. Initial setup and model downloads take time.
+Call `docqa.stop()` before rerunning setup. Runtime files are temporary and are not backed up to Drive.
+
 ## Config
 
 See `.env.example`. Agent limits (`MAX_TOOL_CALLS`, `MAX_ITERATIONS`, `CRAG_MAX_RETRIES`) and
