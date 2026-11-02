@@ -1,0 +1,2 @@
+# Evaluation-only dependency. App requirements remain unchanged.
+datasets

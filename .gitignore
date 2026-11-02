@@ -8,3 +8,6 @@ results/
 eval_work/
 exports/
 .DS_Store
+eval/qasper/sample_*.json
+eval/qasper/cache/
+eval/qasper/results/
