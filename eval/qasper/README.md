@@ -213,3 +213,17 @@ QASPER_OFFICIAL_EVALUATOR=/tmp/qasper-official-evaluator.py python -m unittest e
 It is not vendored or fetched by ordinary unit tests. If absent, that one optional
 parity test skips; hand-computed scoring tests still run. Neither the benchmark
 corpus, generated manifests, results nor model weights are committed.
+
+For a 50-question run, use `--n 50 --minimum-per-type 5`. The default floor
+remains 20 for the original 250-question experiment. Seed 42 on the released
+test set gives 29 extractive, 9 abstractive, 7 boolean and 5 unanswerable questions.
+
+The optional `--drive-folder-id FOLDER_ID --drive-account EMAIL` enables Drive
+API backups after Colab authentication (`google.colab.auth.authenticate_user()`).
+Install `google-api-python-client` and `google-auth` for this option. Each question
+is an immutable JSON object uploaded and downloaded again for SHA-256 verification
+before another question begins. A failed upload/readback stops the run. Full JSON
+and Markdown snapshots are also verified at the report cadence and completion.
+`--resume` reconstructs results from the cloud question records after runtime loss;
+corrupt records or a different authenticated account are rejected. Local result
+paths alone do not establish that mounted Drive writes have synced.

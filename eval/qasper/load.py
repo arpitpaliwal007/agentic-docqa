@@ -153,8 +153,8 @@ def load_split(split, cache_dir, *, hf_loader=None):
 
 
 def sample_questions(papers, n=250, seed=42, minimum=20):
-    if n <= 0:
-        raise ValueError('n must be positive')
+    if n <= 0 or minimum < 0:
+        raise ValueError('n must be positive and minimum must be nonnegative')
     groups = {kind: [] for kind in TYPES}
     for paper in papers.values():
         for question in paper['questions']:
@@ -185,8 +185,8 @@ def sample_questions(papers, n=250, seed=42, minimum=20):
     return selected, details
 
 
-def prepare_sample(papers, metadata, n, seed, sample_dir, cache_dir):
-    selected, details = sample_questions(papers, n, seed)
+def prepare_sample(papers, metadata, n, seed, sample_dir, cache_dir, minimum=20):
+    selected, details = sample_questions(papers, n, seed, minimum)
     manifest = {**details, 'split': metadata['split'], 'dataset_hash': metadata['dataset_hash'],
                 'questions': [{'question_id': q['id'], 'paper_id': q['paper_id']} for q in selected]}
     filename = f"sample_{metadata['split']}_{n}_{seed}.json"

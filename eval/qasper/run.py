@@ -31,6 +31,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--split',choices=('train','validation','test'),default='test')
     p.add_argument('--n',type=int,default=250)
+    p.add_argument('--minimum-per-type',type=int,default=20,help='Stratified sample floor; use 5 for a 50-question run')
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--mode',choices=('per_paper','pooled'),default='per_paper')
     p.add_argument('--answer-model',default=os.environ.get('EVAL_LLM_MODEL','qwen2.5:7b'))
@@ -46,10 +47,14 @@ def parse_args(argv=None):
     p.add_argument('--prepare-only',action='store_true',help='Load/cache data and save sample manifest; no app/models')
     p.add_argument('--judge-context-chars',type=int,default=24000)
     p.add_argument('--report-every',type=int,default=10,help='JSON saves every question; refresh Markdown/CIs every N')
+    p.add_argument('--drive-folder-id',help='Optional Drive API backup parent; every question is uploaded and read back before continuing')
+    p.add_argument('--drive-account',help='Required Google account email for Drive API backup')
     args=p.parse_args(argv)
     args.out=args.out or ROOT/'results/qasper'/args.mode
-    if args.n <= 0 or (args.limit is not None and args.limit <= 0) or args.judge_context_chars < 1000 or args.report_every <= 0:
+    if args.n <= 0 or args.minimum_per_type < 0 or (args.limit is not None and args.limit <= 0) or args.judge_context_chars < 1000 or args.report_every <= 0:
         p.error('n/limit/report-every must be positive; judge context must be >=1000')
+    if bool(args.drive_folder_id) != bool(args.drive_account):
+        p.error('--drive-folder-id and --drive-account must be supplied together')
     return args
 
 
@@ -113,7 +118,7 @@ def clean_work(work, fingerprint):
 def main(argv=None):
     args=parse_args(argv)
     papers,data_source=load_split(args.split,args.cache_dir)
-    selected,manifest=prepare_sample(papers,data_source,args.n,args.seed,args.sample_dir,args.cache_dir)
+    selected,manifest=prepare_sample(papers,data_source,args.n,args.seed,args.sample_dir,args.cache_dir,args.minimum_per_type)
     args.out.mkdir(parents=True,exist_ok=True)
     atomic_json(args.out/f'sample_{args.split}_{args.n}_{args.seed}.json',manifest)
     if args.prepare_only:
@@ -154,11 +159,18 @@ def main(argv=None):
               'sampled_n':len(selected),'sample':manifest,'data_source':data_source,'self_judge':judge_model==args.answer_model or same_weights,
               'sample_float_only':sum(q['float_only'] for q in selected),'unmapped_evidence_count':sum(len(q['unmapped_evidence_ids']) for q in selected)}
     state=Results(args.out,run_id,metadata)
+    backup=None
+    if args.drive_folder_id:
+        from eval.qasper.drive_backup import DriveBackup
+        backup=DriveBackup.connect(args.drive_folder_id,args.drive_account)
+        backup.bind(state,resume=args.resume)
     targets=selected[:args.limit] if args.limit else selected
     pending=[q for q in targets if not state.completed(q['id'])]
     if not pending:
         print('All selected questions are already complete; no inference repeated.')
         write_reports(state)
+        if backup:
+            backup.checkpoint(state)
         return 0
     work=prepare_workdir(args.work_root,run_id,fingerprint)
     config.DATA_DIR=work/'data'
@@ -182,13 +194,20 @@ def main(argv=None):
                     print(f"QASPER {question['id']} ({paper_id}): {question['question']}",flush=True)
                     record=process_question(session,papers[paper_id],question,formatter,judge,args.judge_context_chars)
                     state.value.pop('summary',None)
-                    state.put(record)  # Every question directly to Drive, including explicit failures.
-                    write_reports(state,markdown=len(state.value['results']) % args.report_every==0)
+                    state.put(record)
+                    if backup:
+                        backup.record(state,record)  # A failed cloud verification stops before another question.
+                    refresh=len(state.value['results']) % args.report_every==0
+                    write_reports(state,markdown=refresh)
+                    if backup and refresh:
+                        backup.checkpoint(state)
             finally:
                 backend.finish_paper(paper_id)
         state.value['metadata']['indexed_papers_this_process']=backend.indexed_papers
         state.value.pop('last_error',None)
         write_reports(state)
+        if backup:
+            backup.checkpoint(state)
         return 1 if any(state.value['results'][q['id']]['status']=='error' for q in targets) else 0
     except BaseException as error:
         state.value['last_error']=f'{type(error).__name__}: {error}'

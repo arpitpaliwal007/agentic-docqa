@@ -129,6 +129,11 @@ class QasperMetricTests(unittest.TestCase):
         self.assertEqual(detail['quotas'],{'extractive':30,'abstractive':20,'boolean':7,'none':3})
         self.assertEqual(set(detail['rare_types_take_all']),{'boolean','none'})
         with self.assertRaises(ValueError):sample_questions(papers,n=3)
+        fifty,detail50=sample_questions(papers,n=50,seed=42,minimum=5)
+        self.assertEqual(len(fifty),50)
+        self.assertEqual(detail50['minimum_per_type'],5)
+        self.assertTrue(all(detail50['quotas'][kind]>=min(5,detail50['population'][kind]) for kind in detail50['quotas']))
+        with self.assertRaises(ValueError):sample_questions(papers,n=50,minimum=-1)
         with tempfile.TemporaryDirectory() as d:
             a,manifest=prepare_sample(papers,{'split':'test','dataset_hash':'stable'},60,42,Path(d)/'samples',Path(d)/'cache')
             b,again=prepare_sample(papers,{'split':'test','dataset_hash':'stable'},60,42,Path(d)/'samples',Path(d)/'cache')
